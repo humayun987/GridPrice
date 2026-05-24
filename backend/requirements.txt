@@ -1,0 +1,37 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+
+# Database
+sqlalchemy[asyncio]==2.0.30
+asyncpg==0.29.0
+alembic==1.13.1
+
+# Redis
+redis==5.0.4
+
+# Data processing
+pandas==2.2.2
+numpy==1.26.4
+
+# HTTP client (for calling ML service and weather API)
+httpx==0.27.0
+
+# Browser automation (scraping)
+playwright==1.44.0
+
+# Job scheduling
+apscheduler==3.10.4
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Validation
+pydantic==2.7.1
+pydantic-settings==2.3.0
+
+# Password hashing
+bcrypt==4.1.3
+
+# Excel export
+openpyxl==3.1.2
