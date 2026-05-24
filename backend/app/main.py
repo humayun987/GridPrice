@@ -1,10 +1,20 @@
-from fastapi import FastAPI
+import asyncio
+import sys
+
+# Fix for Playwright on Windows — must be set before anything else
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
+from app.core.database import get_db
+from app.services.scraper import scrape_today_mcp
+from app.services.weather import fetch_tomorrow_weather
 
 settings = get_settings()
 
-# Create FastAPI app
 app = FastAPI(
     title="tatva.gridprice API",
     description="Electricity market price forecasting platform",
@@ -13,10 +23,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS middleware — allows frontend to talk to this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js frontend
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,12 +34,23 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "ok",
-        "environment": settings.APP_ENV,
-    }
+    return {"status": "ok", "environment": settings.APP_ENV}
 
 
 @app.get("/")
 async def root():
     return {"message": "tatva.gridprice API is running"}
+
+
+@app.post("/test/scrape-mcp")
+async def test_scrape_mcp(db: AsyncSession = Depends(get_db)):
+    """Manually trigger MCP scraper — for testing only."""
+    result = await scrape_today_mcp(db)
+    return result
+
+
+@app.post("/test/fetch-weather")
+async def test_fetch_weather(db: AsyncSession = Depends(get_db)):
+    """Manually trigger weather fetch — for testing only."""
+    result = await fetch_tomorrow_weather(db)
+    return result
