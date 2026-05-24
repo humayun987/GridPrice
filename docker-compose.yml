@@ -1,0 +1,42 @@
+services:
+
+  # ─── PostgreSQL + TimescaleDB ───────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: gridprice_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gridprice_user
+      POSTGRES_PASSWORD: gridprice_pass
+      POSTGRES_DB: gridprice_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # ─── Redis ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gridprice_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # ─── pgAdmin (visual DB browser) ────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: gridprice_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@gridprice.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
