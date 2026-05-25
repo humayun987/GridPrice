@@ -1,7 +1,6 @@
 import asyncio
 import sys
 
-# Fix for Playwright on Windows — must be set before anything else
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -10,10 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.scheduler import create_scheduler
 from app.services.scraper import scrape_today_mcp
 from app.services.weather import fetch_tomorrow_weather
 
 settings = get_settings()
+
+# Create scheduler instance
+scheduler = create_scheduler()
 
 app = FastAPI(
     title="tatva.gridprice API",
@@ -30,6 +33,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Starts the scheduler when FastAPI starts."""
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stops the scheduler when FastAPI shuts down."""
+    scheduler.shutdown()
 
 
 @app.get("/health")
