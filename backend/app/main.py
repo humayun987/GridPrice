@@ -69,3 +69,11 @@ async def test_fetch_weather(db: AsyncSession = Depends(get_db)):
     """Manually trigger weather fetch — for testing only."""
     result = await fetch_tomorrow_weather(db)
     return result
+
+
+@app.post("/test/run-pipeline")
+async def test_run_pipeline(db: AsyncSession = Depends(get_db)):
+    """Manually trigger feature builder + ML pipeline — for testing only."""
+    from app.services.feature_builder import build_features_and_predict
+    result = await build_features_and_predict(db)
+    return result
