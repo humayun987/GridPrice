@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.routers import auth, admin
 from app.core.scheduler import create_scheduler
 from app.services.scraper import scrape_today_mcp
 from app.services.weather import fetch_tomorrow_weather
@@ -34,6 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(admin.router)
 
 @app.on_event("startup")
 async def startup_event():
