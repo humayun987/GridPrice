@@ -5,6 +5,7 @@ export interface ForecastBlock {
   lower_ci: number;
   upper_ci: number;
   actual_price?: number;
+  demand_ratio?: number;
 }
 
 export interface ForecastData {

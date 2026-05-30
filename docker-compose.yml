@@ -1,6 +1,6 @@
 services:
 
-  # ─── PostgreSQL + TimescaleDB ───────────────────────────
+  # PostgreSQL + TimescaleDB
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: gridprice_postgres
@@ -13,8 +13,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    mem_limit: 256m
+    command: postgres -c shared_buffers=64MB -c max_connections=20 -c work_mem=4MB
 
-  # ─── Redis ──────────────────────────────────────────────
+  # Redis
   redis:
     image: redis:7-alpine
     container_name: gridprice_redis
@@ -23,12 +25,14 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    mem_limit: 64m
+    command: redis-server --maxmemory 48mb --maxmemory-policy allkeys-lru
 
-  # ─── pgAdmin (visual DB browser) ────────────────────────
+  # pgAdmin - only start manually when needed
   pgadmin:
     image: dpage/pgadmin4
     container_name: gridprice_pgadmin
-    restart: unless-stopped
+    restart: "no"
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@gridprice.com
       PGADMIN_DEFAULT_PASSWORD: admin123
@@ -36,6 +40,9 @@ services:
       - "5050:80"
     depends_on:
       - postgres
+    mem_limit: 128m
+    profiles:
+      - tools
 
 volumes:
   postgres_data:
