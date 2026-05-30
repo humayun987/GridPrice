@@ -7,20 +7,17 @@ from alembic import context
 import sys
 import os
 
-# Add backend folder to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import get_settings
-from app.core.database import Base
-
-# Import all models so Alembic can detect them
+from app.core.database import Base, get_database_url
 import app.models
 
 config = context.config
 settings = get_settings()
 
-# Override sqlalchemy.url with our settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Use converted URL (postgresql+asyncpg://)
+config.set_main_option("sqlalchemy.url", get_database_url())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

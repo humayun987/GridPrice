@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node --max-old-space-size=1024 node_modules/next/dist/bin/next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
-  },
+  },        
   "dependencies": {
     "axios": "^1.16.1",
     "class-variance-authority": "^0.7.1",
@@ -16,7 +16,7 @@
     "echarts-for-react": "^3.0.6",
     "lucide-react": "^1.16.0",
     "next": "14.2.35",
-    "next-auth": "^5.0.0-beta.31",
+    "next-auth": "4.24.7",
     "radix-ui": "^1.4.3",
     "react": "^18",
     "react-dom": "^18",
