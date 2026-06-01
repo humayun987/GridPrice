@@ -92,8 +92,8 @@ async def scrape_today_mcp(
     rows_written = 0
     error_message = None
     today_date = datetime.today().strftime('%Y-%m-%d')
-    temp_file = f"temp_scrape_{today_date}.csv"
-
+    # temp_file = f"temp_scrape_{today_date}.csv"
+    temp_file = f"temp_scrape_{market}_{state}_{today_date}.csv"
     try:
         # ── Step 1: Run browser scraping ──────────────────────
         # On Windows — run in thread pool to avoid event loop restriction

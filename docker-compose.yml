@@ -38,12 +38,15 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:
       - "5050:80"
+    # volumes:
+    # - pgadmin_data:/var/lib/pgadmin
     depends_on:
       - postgres
-    mem_limit: 128m
+    # mem_limit: 512m
     profiles:
       - tools
 
 volumes:
   postgres_data:
   redis_data:
+  # pgadmin_data:

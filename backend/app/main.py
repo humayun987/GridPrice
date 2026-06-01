@@ -76,6 +76,24 @@ async def test_fetch_weather(db: AsyncSession = Depends(get_db)):
     return result
 
 
+# @app.post("/test/run-pipeline")
+# async def test_run_pipeline(db: AsyncSession = Depends(get_db)):
+#     """Manually trigger feature builder + ML pipeline — for testing only."""
+#     from app.services.feature_builder import build_features_and_predict
+#     result = await build_features_and_predict(db)
+#     return result
+
+@app.post("/test/scrape-all-markets")
+async def test_scrape_all_markets(db: AsyncSession = Depends(get_db)):
+    """Scrape DAM, GDAM, RTM for Telangana — for testing only."""
+    from app.services.scraper import scrape_today_mcp
+    results = []
+    for market in ["GDAM", "DAM", "RTM"]:
+        result = await scrape_today_mcp(db, market=market, state="Telangana")
+        results.append({"market": market, **result})
+    return results
+
+
 @app.post("/test/run-pipeline")
 async def test_run_pipeline(db: AsyncSession = Depends(get_db)):
     """Manually trigger feature builder + ML pipeline — for testing only."""
