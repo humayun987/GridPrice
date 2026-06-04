@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateMockForecast, MOCK_REGIONS } from "@/lib/mockData";
 import { ForecastBlock } from "@/lib/types";
+import { ExportModal } from "@/components/shared/ExportModal";
 import { RefreshCw, Download, TrendingUp, TrendingDown, Activity, Zap, Target, AlertCircle, WifiOff } from "lucide-react";
 import dynamic from "next/dynamic";
+import type { Market } from "@/components/shared/ExportModal";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -26,14 +28,25 @@ const days = Array.from({ length: 7 }, (_, i) => {
   };
 });
 
+// function getTomorrow(): string {
+//   const d = new Date();
+//   d.setDate(d.getDate() + 1);
+//   return d.toISOString().split("T")[0];
+// }
+
+// function getToday(): string {
+//   return new Date().toISOString().split("T")[0];
+// }
+
 function getTomorrow(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().split("T")[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function getToday(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function DashboardPage() {
@@ -53,8 +66,10 @@ export default function DashboardPage() {
   const [auditData, setAuditData] = useState<ForecastBlock[]>([]);
   const [auditAvailable, setAuditAvailable] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
-
-
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [chartInstance, setChartInstance] = useState<any>(null);
+  const [forecastChartInstance, setForecastChartInstance] = useState<any>(null);
+  const [auditChartInstance, setAuditChartInstance] = useState<any>(null);
   const loadForecast = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
@@ -213,8 +228,15 @@ export default function DashboardPage() {
   const min = forecastData.length ? Math.min(...forecastData.map((d) => d.predicted_price)) : 0;
   const peakBlock = forecastData.length ? forecastData.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b).block : 0;
   const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
-  const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-
+  const todayStr = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const tomorrowS = new Date();
+  tomorrowS.setDate(tomorrowS.getDate() + 1);
+  const tomorrowStr = tomorrowS.toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
   // ── D+1 Forecast Chart ─────────────────────────────────
   const blocks = forecastData.map((d) => d.block);
   const predicted = forecastData.map((d) => d.predicted_price);
@@ -447,7 +469,8 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900">Price Discovery Corridor (D+1)</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">{today}</p>
+          {/* <p className="text-zinc-500 text-sm mt-0.5">{todayStr}</p> */}
+          <p className="text-zinc-500 text-sm mt-0.5">{tomorrowStr}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadForecast} className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
@@ -465,7 +488,7 @@ export default function DashboardPage() {
               {refreshing ? "Refreshing..." : "Refresh Forecast"}
             </Button>
           )}
-          <Button variant="outline" size="sm" className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
+          <Button variant="outline" onClick={() => setIsExportOpen(true)} size="sm" className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
             <Download size={12} /> Export
           </Button>
         </div>
@@ -502,8 +525,8 @@ export default function DashboardPage() {
           <button
             onClick={() => setShowCI(!showCI)}
             className={`text-xs px-3 py-1.5 rounded-md border transition-all ${showCI
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-400 border-zinc-200"
+              ? "bg-zinc-900 text-white border-zinc-900"
+              : "bg-white text-zinc-400 border-zinc-200"
               }`}
           >
             Confidence Interval
@@ -586,14 +609,14 @@ export default function DashboardPage() {
               {dataSource === "real" && <span className="ml-2 text-xs font-normal text-emerald-500">· Live data</span>}
               {dataSource === "unavailable" && <span className="ml-2 text-xs font-normal text-amber-500">· No data available</span>}
             </p>
-            <ReactECharts option={forecastOption} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} />
+            <ReactECharts option={forecastOption} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} />
           </div>
         )}
       </Card>
 
       {/* Badges */}
       <div className="flex items-center gap-2">
-        {dataSource === "real" && <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Live data from database</Badge>}
+        {/* {dataSource === "real" && <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">Live data from database</Badge>} */}
         {dataSource === "unavailable" && <Badge variant="outline" className="text-xs text-zinc-400 border-zinc-200">No data for selected market/region </Badge>}
         <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 bg-emerald-50">96 blocks · 15-min intervals</Badge>
       </div>
@@ -662,11 +685,21 @@ export default function DashboardPage() {
               <p className="text-sm font-semibold text-zinc-700 mb-4">
                 Actual vs Predicted · {days[auditDay]?.label} · {selectedMarket}
               </p>
-              <ReactECharts option={auditOption} style={{ height: "320px", width: "100%" }} opts={{ renderer: "canvas" }} />
+              <ReactECharts option={auditOption} style={{ height: "320px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setAuditChartInstance(chart)} />
             </Card>
           </>
         )}
       </div>
+      <ExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        defaultMarket={selectedMarket as Market}   // also fix this (see Bug 4)
+        defaultDate={getTomorrow()}
+        chartInstances={{
+          forecast: forecastChartInstance,
+          audit: auditChartInstance,
+        }}
+      />
     </div>
   );
 }

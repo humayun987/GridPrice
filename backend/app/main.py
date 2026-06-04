@@ -14,6 +14,7 @@ from app.core.scheduler import create_scheduler
 from app.services.scraper import scrape_today_mcp
 from app.services.weather import fetch_tomorrow_weather
 from app.routers import forecasts
+from app.routers.exports import router as exports_router
 
 settings = get_settings()
 
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(forecasts.router)
+app.include_router(exports_router)
 
 @app.on_event("startup")
 async def startup_event():

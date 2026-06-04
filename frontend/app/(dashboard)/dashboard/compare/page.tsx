@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { ExportModal } from "@/components/shared/ExportModal";
 import { useSession } from "next-auth/react";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MOCK_REGIONS } from "@/lib/mockData";
 import { WifiOff } from "lucide-react";
 import dynamic from "next/dynamic";
-
+import type { Market } from "@/components/shared/ExportModal";
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
 const MARKETS = ["GDAM", "DAM", "RTM"];
@@ -38,7 +41,8 @@ export default function ComparePage() {
   const [activeMarkets, setActiveMarkets] = useState(["GDAM", "DAM", "RTM"]);
   const [marketData, setMarketData] = useState<Record<string, MarketData>>({});
   const [loading, setLoading] = useState(false);
-
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [chartInstance, setChartInstance] = useState<any>(null);
   const loadData = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
@@ -142,9 +146,25 @@ export default function ComparePage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-zinc-900">Market Comparison</h1>
-        <p className="text-zinc-500 text-sm mt-0.5">Compare GDAM, DAM and RTM actual prices side by side</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-zinc-900">
+            Market Comparison
+          </h1>
+          <p className="text-zinc-500 text-sm mt-0.5">
+            Compare GDAM, DAM and RTM actual prices side by side
+          </p>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsExportOpen(true)}
+          className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs"
+        >
+          <Download size={12} />
+          Export
+        </Button>
       </div>
 
       {/* Controls */}
@@ -261,6 +281,7 @@ export default function ComparePage() {
             option={chartOption}
             style={{ height: "420px", width: "100%" }}
             opts={{ renderer: "canvas" }}
+            onChartReady={(chart) => setChartInstance(chart)}
           />
         )}
       </Card>
@@ -270,11 +291,10 @@ export default function ComparePage() {
         {MARKETS.map((m) => (
           <span
             key={m}
-            className={`text-xs px-2.5 py-1 rounded-md border font-medium ${
-              marketData[m]?.available
-                ? "text-emerald-600 border-emerald-200 bg-emerald-50"
-                : "text-zinc-300 border-zinc-100 bg-zinc-50"
-            }`}
+            className={`text-xs px-2.5 py-1 rounded-md border font-medium ${marketData[m]?.available
+              ? "text-emerald-600 border-emerald-200 bg-emerald-50"
+              : "text-zinc-300 border-zinc-100 bg-zinc-50"
+              }`}
           >
             {m}: {marketData[m]?.available ? "Available" : "No data"}
           </span>
@@ -283,6 +303,16 @@ export default function ComparePage() {
           · {DATE_OPTIONS[selectedDateIdx].label} · {selectedRegion}
         </span>
       </div>
+      <ExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        defaultMarket={activeMarkets[0] as Market}
+        defaultStartDate={DATE_OPTIONS[selectedDateIdx].date}
+        defaultEndDate={DATE_OPTIONS[selectedDateIdx].date}
+        chartInstances={{
+          historical: chartInstance,
+        }}
+      />
     </div>
   );
 }
