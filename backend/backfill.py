@@ -26,7 +26,7 @@ from app.core.database import AsyncSessionLocal
 URL = "https://iexrtmprice.com/DSM_Data/"
 ACTIVE_STATES  = ["Telangana"]
 ACTIVE_MARKETS = ["GDAM", "DAM", "RTM"]
-DAYS_BACK      = 7
+DAYS_BACK      = 1
 
 _executor = ThreadPoolExecutor(max_workers=2)
 
