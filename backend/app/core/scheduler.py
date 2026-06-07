@@ -65,20 +65,23 @@ async def run_weather_fetch():
 # ─── Job 3: Feature builder + ML pipeline ────────────────────────────────────
 
 async def run_pipeline():
-    """
-    Assembles CSV from all market data + weather,
-    calls ML service, saves P10/P50/P90 predictions.
-    Runs at 9:55 IST daily — after scraper and weather complete.
-    """
     logger.info(f"[Scheduler] Pipeline starting — states: {ACTIVE_STATES}")
     for state in ACTIVE_STATES:
         async with AsyncSessionLocal() as db:
             try:
                 from app.services.feature_builder import build_features_and_predict
+                from app.core.redis import cache_delete_pattern  # add this
+
                 result = await build_features_and_predict(
                     db, state=state, target_market="GDAM"
                 )
                 logger.info(f"[Scheduler] Pipeline {state}: {result}")
+
+                # Invalidate stale cache so frontend picks up new forecasts
+                await cache_delete_pattern(f"forecast:GDAM:{state}:*")
+                await cache_delete_pattern("availability")
+                logger.info(f"[Scheduler] Cache invalidated for GDAM/{state}")
+
             except Exception as e:
                 logger.error(f"[Scheduler] Pipeline failed {state}: {e}")
 
@@ -90,7 +93,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_mcp_scraper,
-        trigger=CronTrigger(hour=9, minute=0),
+        trigger=CronTrigger(hour=9, minute=43),
         id="mcp_scraper",
         name="MCP Scraper — all markets × all states",
         replace_existing=True,
@@ -98,7 +101,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_weather_fetch,
-        trigger=CronTrigger(hour=9, minute=45),
+        trigger=CronTrigger(hour=9, minute=50),
         id="weather_fetch",
         name="Weather Fetch — all states",
         replace_existing=True,

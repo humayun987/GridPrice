@@ -21,7 +21,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const days = Array.from({ length: 7 }, (_, i) => {
   const d = new Date();
-  d.setDate(d.getDate() - i - 1);
+  d.setDate(d.getDate() - i);
   return {
     label: d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }),
     date: d.toISOString().split("T")[0],
@@ -126,6 +126,17 @@ export default function DashboardPage() {
   }, [accessToken, selectedMarket, selectedRegion]);
 
   useEffect(() => { loadForecast(); }, [loadForecast]);
+
+  // Auto-poll every 5 min when no forecast yet — stops once data arrives
+  useEffect(() => {
+    if (dataSource !== "unavailable") return; // already have data, don't poll
+
+    const interval = setInterval(() => {
+      loadForecast();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, [dataSource, loadForecast]);
 
   const loadCILevels = useCallback(async () => {
     if (!accessToken) return;

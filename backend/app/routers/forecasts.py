@@ -208,17 +208,14 @@ async def refresh_forecast(
     _: User = Depends(require_admin),
 ):
     try:
-        from app.services.feature_builder import build_features_and_predict
-        result = await build_features_and_predict(db)
-
-        # Invalidate forecast cache for this market/region
-        await cache_delete_pattern(f"forecast:{market}:{region}:*")
-        await cache_delete_pattern("availability")
+        # Only invalidate cache — do NOT re-run the pipeline
+        # Re-running causes duplicate ForecastRun entries
+        deleted_forecast = await cache_delete_pattern(f"forecast:{market}:{region}:*")
+        deleted_avail = await cache_delete_pattern("availability")
 
         return {
             "status": "success",
-            "message": "Forecast refreshed and cache invalidated",
-            "result": result,
+            "message": f"Cache invalidated — {deleted_forecast + deleted_avail} keys cleared. Next request will fetch fresh from DB.",
         }
     except Exception as e:
         return {
