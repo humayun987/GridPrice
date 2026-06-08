@@ -18,31 +18,22 @@ ACTIVE_MARKETS = ["GDAM", "DAM", "RTM"]
 # ─── Job 1: MCP scraper ───────────────────────────────────────────────────────
 
 async def run_mcp_scraper():
-    """
-    Scrapes today's data for all markets × all states.
-    Runs sequentially: one market per state at a time.
-    Runs at 9:00 IST daily.
-    """
-    logger.info(
-        f"[Scheduler] MCP scrape starting — "
-        f"states: {ACTIVE_STATES}, markets: {ACTIVE_MARKETS}"
-    )
     for state in ACTIVE_STATES:
         for market in ACTIVE_MARKETS:
             async with AsyncSessionLocal() as db:
                 try:
                     from app.services.scraper import scrape_today_mcp
-                    result = await scrape_today_mcp(
-                        db, market=market, state=state
-                    )
-                    logger.info(
-                        f"[Scheduler] Scraped {market}/{state}: {result}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[Scheduler] Scrape failed {market}/{state}: {e}"
-                    )
+                    from app.core.redis import cache_delete_pattern
 
+                    result = await scrape_today_mcp(db, market=market, state=state)
+                    logger.info(f"[Scheduler] Scraped {market}/{state}: {result}")
+
+                    # Clear stale empty cache after writing
+                    await cache_delete_pattern(f"historical:{market}:{state}:*")
+                    await cache_delete_pattern("availability")
+
+                except Exception as e:
+                    logger.error(f"[Scheduler] Scrape failed {market}/{state}: {e}")
 
 # ─── Job 2: Weather fetch ─────────────────────────────────────────────────────
 
@@ -93,7 +84,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_mcp_scraper,
-        trigger=CronTrigger(hour=9, minute=43),
+        trigger=CronTrigger(hour=19, minute=20),
         id="mcp_scraper",
         name="MCP Scraper — all markets × all states",
         replace_existing=True,
@@ -101,7 +92,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_weather_fetch,
-        trigger=CronTrigger(hour=9, minute=50),
+        trigger=CronTrigger(hour=19, minute=25),
         id="weather_fetch",
         name="Weather Fetch — all states",
         replace_existing=True,
@@ -109,7 +100,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_pipeline,
-        trigger=CronTrigger(hour=9, minute=55),
+        trigger=CronTrigger(hour=19, minute=30),
         id="pipeline",
         name="Feature Builder + ML Pipeline",
         replace_existing=True,
