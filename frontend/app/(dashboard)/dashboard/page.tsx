@@ -24,7 +24,7 @@ const days = Array.from({ length: 7 }, (_, i) => {
   d.setDate(d.getDate() - i);
   return {
     label: d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }),
-    date: d.toISOString().split("T")[0],
+    date: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,
   };
 });
 
