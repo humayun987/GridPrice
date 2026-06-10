@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 
@@ -91,7 +92,7 @@ async def scrape_today_mcp(
     started_at = datetime.utcnow()
     rows_written = 0
     error_message = None
-    today_date = datetime.today().strftime('%Y-%m-%d')
+    today_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d')
     # temp_file = f"temp_scrape_{today_date}.csv"
     temp_file = f"temp_scrape_{market}_{state}_{today_date}.csv"
     try:
