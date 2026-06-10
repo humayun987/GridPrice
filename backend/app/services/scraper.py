@@ -141,12 +141,13 @@ async def scrape_today_mcp(
 
                 delivery_date = str(row.get("delivery_date", today_date))
                 try:
-                    base_date = datetime.strptime(
-                        delivery_date.strip(), "%Y-%m-%d"
-                    )
-                except Exception:
-                    base_date = datetime.today()
-
+                    base_date = datetime.strptime(delivery_date.strip(), "%d/%m/%Y")
+                except ValueError:
+                    try:
+                        base_date = datetime.strptime(delivery_date.strip(), "%Y-%m-%d")
+                    except Exception:
+                        from zoneinfo import ZoneInfo
+                        base_date = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
                 datetime_block = base_date.replace(
                     hour=hour,
                     minute=minute,
