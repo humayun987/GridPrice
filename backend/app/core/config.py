@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = ""
 
-    # ML Service
-    ML_SERVICE_URL: str = "mock"
+    # ML Services — one URL per market
+    ML_SERVICE_URL_GDAM: str = "mock"
+    ML_SERVICE_URL_DAM: str = "mock"
+    ML_SERVICE_URL_RTM: str = "mock"
 
     model_config = {
         "env_file": ".env",

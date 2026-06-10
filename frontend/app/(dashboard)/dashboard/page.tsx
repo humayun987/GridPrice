@@ -234,10 +234,37 @@ export default function DashboardPage() {
   };
 
   // ── Stats ──────────────────────────────────────────────
-  const avg = forecastData.length ? Math.round(forecastData.reduce((s, d) => s + d.predicted_price, 0) / forecastData.length) : 0;
-  const max = forecastData.length ? Math.max(...forecastData.map((d) => d.predicted_price)) : 0;
-  const min = forecastData.length ? Math.min(...forecastData.map((d) => d.predicted_price)) : 0;
-  const peakBlock = forecastData.length ? forecastData.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b).block : 0;
+  // const avg = forecastData.length ? Math.round(forecastData.reduce((s, d) => s + d.predicted_price, 0) / forecastData.length) : 0;
+  // const max = forecastData.length ? Math.max(...forecastData.map((d) => d.predicted_price)) : 0;
+  // const min = forecastData.length ? Math.min(...forecastData.map((d) => d.predicted_price)) : 0;
+  // const peakBlock = forecastData.length ? forecastData.reduce((a, b) => a.predicted_price > b.predicted_price ? a : b).block : 0;
+  const validForecasts = forecastData.filter(
+    d => d.predicted_price != null
+  );
+
+  const avg = validForecasts.length
+    ? Math.round(
+      validForecasts.reduce(
+        (s, d) => s + d.predicted_price,
+        0
+      ) / validForecasts.length
+    )
+    : 0;
+
+  const max = validForecasts.length
+    ? Math.max(...validForecasts.map(d => d.predicted_price))
+    : 0;
+
+  const min = validForecasts.length
+    ? Math.min(...validForecasts.map(d => d.predicted_price))
+    : 0;
+
+  const peakBlock = validForecasts.length
+    ? validForecasts.reduce(
+      (a, b) =>
+        a.predicted_price > b.predicted_price ? a : b
+    ).block
+    : 0;
   const fmt = (v: number) => `₹${v.toLocaleString("en-IN")}`;
   const todayStr = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const tomorrowS = new Date();
@@ -295,7 +322,11 @@ export default function DashboardPage() {
         const idx = params[0]?.dataIndex;
         const d = forecastData[idx];
         if (!d) return "";
-        const f = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+        // const f = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+        const f = (v: number | null | undefined) =>
+          v == null
+            ? "N/A"
+            : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
         let html = `<div style="font-weight:600;margin-bottom:6px">Block ${d.block} · ${d.datetime_block}</div>`;
         html += `<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="width:10px;height:10px;border-radius:50%;background:#10b981;display:inline-block"></span><span style="color:#a1a1aa">P50 Forecast:</span><span style="font-weight:600">${f(d.predicted_price)}</span></div>`;
         if (showCI) {
@@ -610,7 +641,7 @@ export default function DashboardPage() {
               <WifiOff size={32} className="text-zinc-300" />
               <p className="text-zinc-500 font-medium">No forecast available</p>
               <p className="text-zinc-400 text-sm">No data found for {selectedMarket} · {selectedRegion} · Tomorrow</p>
-              <p className="text-zinc-300 text-xs">Only GDAM · Telangana is currently supported</p>
+              {/* <p className="text-zinc-300 text-xs">Only GDAM · Telangana is currently supported</p> */}
             </div>
           </div>
         ) : (

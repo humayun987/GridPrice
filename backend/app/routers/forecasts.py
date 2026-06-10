@@ -1,3 +1,4 @@
+import math
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -18,6 +19,19 @@ FORECAST_TTL = 6 * 3600    # 6 hours
 HISTORICAL_TTL = 12 * 3600  # 12 hours
 AVAILABILITY_TTL = 3600     # 1 hour
 
+def safe_float(v):
+    if v is None:
+        return None
+
+    try:
+        v = float(v)
+
+        if math.isnan(v) or math.isinf(v):
+            return None
+
+        return v
+    except Exception:
+        return None
 
 @router.get("/forecasts")
 async def get_forecasts(
@@ -81,9 +95,9 @@ async def get_forecasts(
             {
                 "block": i + 1,
                 "datetime_block": b.datetime_block.strftime("%H:%M"),
-                "predicted_price": float(b.predicted_price),
-                "lower_ci": float(b.lower_ci) if b.lower_ci else None,
-                "upper_ci": float(b.upper_ci) if b.upper_ci else None,
+                "predicted_price": safe_float(b.predicted_price),
+                "lower_ci": safe_float(b.lower_ci),
+                "upper_ci": safe_float(b.upper_ci),
             }
             for i, b in enumerate(blocks)
         ],

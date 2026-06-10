@@ -33,7 +33,7 @@ from app.models.market import HistoricalPrice
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 VALID_MARKETS = ["DAM", "GDAM", "RTM"]
-FORECAST_ONLY_MARKETS = ["GDAM"]
+FORECAST_ONLY_MARKETS = ["GDAM", "DAM", "RTM"]
 MAX_DATE_RANGE_DAYS = 30
 
 

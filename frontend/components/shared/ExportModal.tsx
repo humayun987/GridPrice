@@ -45,7 +45,6 @@ interface ExportPayload {
 // ─────────────────────── Constants ───────────────────
 
 const ALL_MARKETS: Market[] = ["DAM", "GDAM", "RTM"];
-const FORECAST_MARKET: Market = "GDAM"; // only market with ML forecasts
 const MAX_DAYS = 30;
 const REGION = "Telangana";
 
@@ -130,10 +129,6 @@ export function ExportModal({
     setExportType(type);
     setError(null);
     setSuccess(false);
-    // Forecast and audit are GDAM-only
-    if (type === "forecast" || type === "audit") {
-      setMarket(FORECAST_MARKET);
-    }
   }, []);
 
   // ── Date range validation ─────────────────────────────────
@@ -317,7 +312,8 @@ export function ExportModal({
               </Label>
               <div className="flex gap-2">
                 {ALL_MARKETS.map((m) => {
-                  const locked = exportType === "forecast" || exportType === "audit";
+                  // const locked = exportType === "forecast" || exportType === "audit";
+                  const locked = false;
                   const isActive = market === m;
                   return (
                     <button
@@ -335,13 +331,13 @@ export function ExportModal({
                   );
                 })}
               </div>
-              {(exportType === "forecast" || exportType === "audit") && (
+              {/* {(exportType === "forecast" || exportType === "audit") && (
                 <p className="text-xs text-amber-500/80">
                   {exportType === "forecast"
                     ? "ML forecasts run only for GDAM."
                     : "Audit requires forecast data — GDAM only."}
                 </p>
-              )}
+              )} */}
             </div>
 
             {/* ── Date Selection ── */}
