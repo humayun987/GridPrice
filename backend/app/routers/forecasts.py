@@ -223,13 +223,15 @@ async def refresh_forecast(
 ):
     try:
         # Only invalidate cache — do NOT re-run the pipeline
-        # Re-running causes duplicate ForecastRun entries
-        deleted_forecast = await cache_delete_pattern(f"forecast:{market}:{region}:*")
-        deleted_avail = await cache_delete_pattern("availability")
+        deleted = 0
+        for mkt in ["GDAM", "DAM", "RTM"]:
+            deleted += await cache_delete_pattern(f"forecast:{mkt}:{region}:*")
+            deleted += await cache_delete_pattern(f"historical:{mkt}:{region}:*")
+        deleted += await cache_delete_pattern("availability")
 
         return {
             "status": "success",
-            "message": f"Cache invalidated — {deleted_forecast + deleted_avail} keys cleared. Next request will fetch fresh from DB.",
+            "message": f"Cache invalidated — {deleted} keys cleared.",
         }
     except Exception as e:
         return {

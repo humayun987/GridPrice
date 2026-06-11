@@ -60,8 +60,12 @@ async def cache_delete_pattern(pattern: str) -> int:
         if redis is None:
             return 0
         keys = await redis.keys(pattern)
+        print("PATTERN:", pattern)
+        print("MATCHED KEYS:", keys)
         if keys:
-            return await redis.delete(*keys)
+            deleted = await redis.delete(*keys)
+            print("DELETED:", deleted)
+            return deleted
         return 0
     except Exception as e:
         logger.warning(f"Cache delete failed for {pattern}: {e}")
