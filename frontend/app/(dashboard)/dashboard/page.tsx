@@ -24,7 +24,7 @@ const days = Array.from({ length: 7 }, (_, i) => {
   d.setDate(d.getDate() - i);
   return {
     label: d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }),
-    date: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,
+    date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
   };
 });
 
@@ -515,9 +515,9 @@ export default function DashboardPage() {
           <p className="text-zinc-500 text-sm mt-0.5">{tomorrowStr}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadForecast} className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
+          {/* <Button variant="outline" size="sm" onClick={loadForecast} className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
-          </Button>
+          </Button> */}
           {(session as any)?.role === "admin" && (
             <Button
               variant="outline"
@@ -541,7 +541,7 @@ export default function DashboardPage() {
         <Tabs value={selectedMarket} onValueChange={setSelectedMarket}>
           <TabsList className="bg-zinc-100 h-8">
             {MARKETS.map((m) => (
-              <TabsTrigger key={m} value={m} className="text-xs font-medium px-4 h-7">{m}</TabsTrigger>
+              <TabsTrigger key={m} value={m} className="text-xs font-medium px-4 h-7 text-zinc-500 data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all">{m}</TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
@@ -555,14 +555,6 @@ export default function DashboardPage() {
             ))}
           </SelectContent>
         </Select>
-        {/* <div className="flex items-center gap-2 ml-auto">
-          <button
-            onClick={() => setShowCI(!showCI)}
-            className={`text-xs px-3 py-1.5 rounded-md border transition-all ${showCI ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-400 border-zinc-200"}`}
-          >
-            Confidence Interval
-          </button>
-        </div> */}
         <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={() => setShowCI(!showCI)}
@@ -651,7 +643,7 @@ export default function DashboardPage() {
               {dataSource === "real" && <span className="ml-2 text-xs font-normal text-emerald-500">· Live data</span>}
               {dataSource === "unavailable" && <span className="ml-2 text-xs font-normal text-amber-500">· No data available</span>}
             </p>
-            <ReactECharts option={forecastOption} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} />
+            <ReactECharts option={forecastOption} notMerge={true} lazyUpdate={false} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} />
           </div>
         )}
       </Card>

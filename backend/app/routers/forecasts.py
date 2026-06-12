@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+from zoneinfo import ZoneInfo
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
@@ -42,7 +43,7 @@ async def get_forecasts(
     current_user: User = Depends(get_current_user),
 ):
     if forecast_date is None:
-        target_date = date.today() + timedelta(days=1)
+        target_date = datetime.now(ZoneInfo("Asia/Kolkata")).date() + timedelta(days=1)
     else:
         target_date = date.fromisoformat(forecast_date)
 
@@ -115,7 +116,7 @@ async def get_historical(
     current_user: User = Depends(get_current_user),
 ):
     if price_date is None:
-        target_date = date.today()
+        target_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     else:
         target_date = date.fromisoformat(price_date)
 

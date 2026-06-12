@@ -3,7 +3,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.core.database import AsyncSessionLocal
 from app.core.config import get_settings
-
+import pytz
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -15,7 +15,7 @@ settings = get_settings()
 ACTIVE_STATES    = ["Telangana"]
 ACTIVE_MARKETS   = ["GDAM", "DAM", "RTM"]
 FORECAST_MARKETS = ["GDAM", "DAM", "RTM"]
-
+IST = pytz.timezone("Asia/Kolkata")
 
 # ─── Job 1: MCP scraper ───────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_mcp_scraper,
-        trigger=CronTrigger(hour=9, minute=0),
+        trigger=CronTrigger(hour=9, minute=0, timezone=IST),
         id="mcp_scraper",
         name="MCP Scraper — all markets × all states",
         replace_existing=True,
@@ -108,7 +108,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_pipeline,
-        trigger=CronTrigger(hour=9, minute=30),
+        trigger=CronTrigger(hour=9, minute=30, timezone=IST),
         id="pipeline",
         name="Feature Builder + ML Pipeline — all markets × all states",
         replace_existing=True,
