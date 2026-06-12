@@ -92,7 +92,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_mcp_scraper,
-        trigger=CronTrigger(hour=10, minute=25),
+        trigger=CronTrigger(hour=9, minute=0),
         id="mcp_scraper",
         name="MCP Scraper — all markets × all states",
         replace_existing=True,
@@ -108,7 +108,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     scheduler.add_job(
         run_pipeline,
-        trigger=CronTrigger(hour=10, minute=40),
+        trigger=CronTrigger(hour=9, minute=30),
         id="pipeline",
         name="Feature Builder + ML Pipeline — all markets × all states",
         replace_existing=True,
