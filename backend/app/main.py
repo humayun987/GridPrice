@@ -52,16 +52,14 @@ async def startup_event():
 async def shutdown_event():
     scheduler.shutdown()
 
-
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok", "environment": settings.APP_ENV}
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "tatva.gridprice API is running"}
-
 
 # ─── Test endpoints ───────────────────────────────────────────────────────────
 
