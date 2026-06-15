@@ -98,17 +98,17 @@ def create_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    # scheduler.add_job(
-    #     run_weather_fetch,
-    #     trigger=CronTrigger(hour=9, minute=25),
-    #     id="weather_fetch",
-    #     name="Weather Fetch — all states",
-    #     replace_existing=True,
-    # )
+    scheduler.add_job(
+        run_weather_fetch,
+        trigger=CronTrigger(hour=9, minute=30, timezone=IST),
+        id="weather_fetch",
+        name="Weather Fetch — all states",
+        replace_existing=True,
+    )
 
     scheduler.add_job(
         run_pipeline,
-        trigger=CronTrigger(hour=9, minute=30, timezone=IST),
+        trigger=CronTrigger(hour=9, minute=45, timezone=IST),
         id="pipeline",
         name="Feature Builder + ML Pipeline — all markets × all states",
         replace_existing=True,
