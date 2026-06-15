@@ -1,6 +1,6 @@
 import uuid
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.services.scraper import _log_scrape_run
@@ -144,8 +144,10 @@ async def fetch_weather_range(
     coords = STATE_COORDS[state]
 
     # Use archive API for past, forecast API for today/future
-    from datetime import date
-    today = date.today()
+    today = datetime.now(
+        ZoneInfo("Asia/Kolkata")
+    ).date()
+
     start = date.fromisoformat(start_date)
 
     if start < today:
