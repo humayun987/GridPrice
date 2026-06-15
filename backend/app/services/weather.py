@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.services.scraper import _log_scrape_run
-
+from zoneinfo import ZoneInfo
 
 STATE_COORDS = {
     "Telangana":      {"lat": 17.3850, "lon": 78.4867},
@@ -33,7 +33,11 @@ async def fetch_tomorrow_weather(
     rows_written = 0
     error_message = None
 
-    tomorrow = datetime.now().date() + timedelta(days=1)
+    tomorrow = (
+        datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        + timedelta(days=1)
+    )
+
     date_str = tomorrow.strftime("%Y-%m-%d")
 
     try:
