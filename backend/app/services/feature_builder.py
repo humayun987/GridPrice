@@ -1,7 +1,4 @@
 import uuid
-import io
-import math
-import pandas as pd
 from datetime import datetime, timedelta, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -14,70 +11,69 @@ async def build_features_and_predict(
     target_market: str = "GDAM",
 ) -> dict:
     """
-    Full pipeline:
-    1. Fetch last 3 days of DAM, GDAM, RTM prices from DB
-    2. Dispatch to the correct per-market feature builder
-    3. Build 96-row CSV
-    4. Send to the correct ML service
-    5. Parse P10/P50/P90 predictions
-    6. Save to forecast_runs + forecasts tables
+    New pipeline — no feature engineering in backend.
+
+    1. Compute date range: 14 days of market history + prediction day weather
+    2. Fetch raw historical_prices rows for target market
+    3. Fetch raw raw_weather_forecasts rows (history + prediction day)
+    4. Build JSON payload
+    5. POST to ML service /predict
+    6. Parse forecast (block → datetime_block, P10/P50/P90)
+    7. Save to forecast_runs + forecasts tables
     """
     print(f"[Pipeline] Starting for {state} - {target_market}")
 
     try:
-        today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-        tomorrow = today + timedelta(days=1)
+        today          = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        tomorrow       = today + timedelta(days=1)       # prediction_date
+        market_start   = tomorrow - timedelta(days=14)   # 14 days back from prediction_date
 
-        # 3 days back ensures:
-        # - today's full data  (lag_96, DAM/GDAM lag_1/lag_4)
-        # - yesterday's full data (lag_192)
-        # - day before yesterday (buffer for edge blocks near midnight)
-        start_date = today - timedelta(days=3)
-
-        # ── Step 1: Fetch all market prices ───────────────────
-        prices = await _fetch_all_market_prices(db, state, start_date)
-        if not prices:
-            raise ValueError(
-                f"No price data for {state}. "
-                f"Run scraper for DAM, GDAM, RTM first."
-            )
-
-        gdam_df = prices.get("GDAM", pd.DataFrame())
-        dam_df  = prices.get("DAM",  pd.DataFrame())
-        rtm_df  = prices.get("RTM",  pd.DataFrame())
-
-        print(
-            f"[Pipeline] GDAM rows: {len(gdam_df)}, "
-            f"DAM rows: {len(dam_df)}, RTM rows: {len(rtm_df)}"
+        # ── Step 1: Fetch raw market data ─────────────────────
+        # Range: market_start (inclusive) → today (inclusive)
+        # i.e. 14 full days ending yesterday relative to prediction_date
+        market_data = await _fetch_market_data(
+            db, state, target_market, market_start, today
         )
-
-        # ── Step 2: Dispatch to correct feature builder ───────
-        if target_market == "GDAM":
-            feature_rows = _build_features_gdam(gdam_df, dam_df, rtm_df, today, tomorrow)
-        elif target_market == "DAM":
-            feature_rows = _build_features_dam(gdam_df, dam_df, rtm_df, today, tomorrow)
-        elif target_market == "RTM":
-            feature_rows = _build_features_rtm(gdam_df, dam_df, rtm_df, today, tomorrow)
-        else:
-            raise ValueError(f"Unknown market: {target_market}")
-
-        print(f"[Pipeline] Feature rows built: {len(feature_rows)}")
-
-        if len(feature_rows) != 96:
+        if not market_data:
             raise ValueError(
-                f"Expected 96 feature rows, got {len(feature_rows)}"
+                f"No market data for {state}/{target_market}. "
+                f"Run scraper first."
             )
+        print(f"[Pipeline] Market rows fetched: {len(market_data)}")
 
-        # ── Step 3: Build CSV ──────────────────────────────────
-        csv_content = _build_csv(feature_rows)
-        print(f"[Pipeline] CSV built: 96 rows")
+        # ── Step 2: Fetch raw weather data ────────────────────
+        # Range: market_start (inclusive) → tomorrow (inclusive)
+        # Tomorrow's weather = future features the ML service needs
+        weather_data = await _fetch_weather_data(
+            db, state, market_start, tomorrow
+        )
+        if not weather_data:
+            raise ValueError(
+                f"No weather data for {state}. Run weather fetcher first."
+            )
+        print(f"[Pipeline] Weather rows fetched: {len(weather_data)}")
 
-        # ── Step 4: Call correct ML service ───────────────────
+        # ── Step 3: Build JSON payload ─────────────────────────
+        payload = {
+            "region":          state,
+            "prediction_date": tomorrow.strftime("%Y-%m-%d"),
+            "market_data":     market_data,
+            "weather_data":    weather_data,
+        }
+
+        # ── Step 4: Call ML service ───────────────────────────
         from app.services.ml_service import call_ml_service
-        predictions = await call_ml_service(csv_content, market=target_market)
+        predictions = await call_ml_service(
+            payload, market=target_market, prediction_date=tomorrow
+        )
         print(f"[Pipeline] Predictions received: {len(predictions)}")
 
-        # ── Step 5: Save predictions ───────────────────────────
+        if len(predictions) != 96:
+            raise ValueError(
+                f"Expected 96 predictions, got {len(predictions)}"
+            )
+
+        # ── Step 5: Save predictions ──────────────────────────
         forecast_run_id = await _save_predictions(
             db, predictions, target_market, state, tomorrow
         )
@@ -93,334 +89,132 @@ async def build_features_and_predict(
 
     except Exception as e:
         print(f"[Pipeline] Failed for {state} - {target_market}: {e}")
-        return {"status": "failed", "error": str(e), "state": state, "market": target_market}
+        return {
+            "status": "failed",
+            "error":  str(e),
+            "state":  state,
+            "market": target_market,
+        }
 
 
-# ─── Fetch all market prices ──────────────────────────────────────────────────
+# ─── Market data fetch ────────────────────────────────────────────────────────
 
-async def _fetch_all_market_prices(
+async def _fetch_market_data(
     db: AsyncSession,
     state: str,
+    market: str,
     start_date: date,
-) -> dict[str, pd.DataFrame]:
+    end_date: date,       # inclusive
+) -> list[dict]:
     """
-    Fetches DAM, GDAM, RTM prices for the given state from start_date onwards.
-    Returns dict of {market_name: DataFrame} sorted by datetime_block ASC.
-    All three markets are always fetched — each builder picks what it needs.
+    Fetches raw historical_prices rows for the given market.
+    start_date inclusive, end_date inclusive (end of that day).
+    Returns list of plain dicts — directly JSON-serialisable.
     """
     result = await db.execute(
         text("""
             SELECT
-                datetime_block,
+                id::text,
                 market,
-                mcp_rs_mwh
+                region,
+                datetime_block,
+                mcp_rs_mwh,
+                cleared_buy_mw,
+                cleared_sell_mw,
+                created_at
             FROM historical_prices
             WHERE
-                region = :state
+                region         = :state
+                AND market     = :market
                 AND datetime_block >= :start
-            ORDER BY market, datetime_block ASC
+                AND datetime_block <  :end
+            ORDER BY datetime_block ASC
         """),
         {
-            "state": state,
-            "start": datetime.combine(start_date, datetime.min.time()),
+            "state":  state,
+            "market": market,
+            "start":  datetime.combine(start_date, datetime.min.time()),
+            # exclude the first block of end_date + 1 day
+            # i.e. include everything up to 23:45 of end_date
+            "end":    datetime.combine(end_date + timedelta(days=1), datetime.min.time()),
         }
     )
 
     rows = result.fetchall()
-    if not rows:
-        return {}
-
-    df = pd.DataFrame(rows, columns=["datetime_block", "market", "mcp_rs_mwh"])
-
-    # Strip timezone for consistent comparison
-    df["datetime_block"] = pd.to_datetime(
-        df["datetime_block"]
-    ).dt.tz_localize(None)
-
-    df = df.sort_values("datetime_block").reset_index(drop=True)
-
-    result_dict = {}
-    for market in ["GDAM", "DAM", "RTM"]:
-        market_df = df[df["market"] == market][
-            ["datetime_block", "mcp_rs_mwh"]
-        ].copy().reset_index(drop=True)
-        result_dict[market] = market_df
-
-    return result_dict
-
-
-# ─── GDAM feature builder ─────────────────────────────────────────────────────
-
-def _build_features_gdam(
-    gdam_df: pd.DataFrame,
-    dam_df: pd.DataFrame,
-    rtm_df: pd.DataFrame,
-    today: date,
-    tomorrow: date,
-) -> list[dict]:
-    """
-    Builds 16 features for each of tomorrow's 96 blocks for the GDAM model.
-
-    Lag reference point is today's equivalent block for all lookups.
-
-    Features:
-        price_lag_96        = GDAM[today_block]            (96 steps before tomorrow)
-        price_lag_192       = GDAM[yesterday_block]        (192 steps before tomorrow)
-        GDAM_MCP_lag_4      = GDAM[today_block - 1hr]
-        DAM_MCP_lag_1       = DAM[today_block - 15min]
-        DAM_MCP_lag_4       = DAM[today_block - 1hr]
-        DAM_MCP_lag_96      = DAM[yesterday_block]
-        RTM_MCP_lag_1       = RTM[today_block - 15min]
-        RTM_MCP_lag_4       = RTM[today_block - 1hr]
-        RTM_MCP_lag_96      = RTM[yesterday_block]
-        DAM_GDAM_spread     = DAM[today_block] - GDAM[today_block]
-        RTM_DAM_spread      = RTM[today_block] - DAM[today_block]
-        RTM_GDAM_spread     = RTM[today_block] - GDAM[today_block]
-        hour, hour_sin, hour_cos, weekday  (from tomorrow's block)
-    """
-    rows = []
-
-    for block_idx in range(96):
-        minutes = block_idx * 15
-
-        tomorrow_block  = datetime.combine(tomorrow, datetime.min.time()) + timedelta(minutes=minutes)
-        today_block     = datetime.combine(today, datetime.min.time()) + timedelta(minutes=minutes)
-        yesterday_block = datetime.combine(today - timedelta(days=1), datetime.min.time()) + timedelta(minutes=minutes)
-
-        # ── GDAM lags ─────────────────────────────────────────
-        price_lag_96  = _get_price_at(gdam_df, today_block)
-        price_lag_192 = _get_price_at(gdam_df, yesterday_block)
-        gdam_lag_4    = _get_price_at(gdam_df, today_block - timedelta(hours=1))
-
-        # ── DAM lags ──────────────────────────────────────────
-        dam_lag_1  = _get_price_at(dam_df, today_block - timedelta(minutes=15))
-        dam_lag_4  = _get_price_at(dam_df, today_block - timedelta(hours=1))
-        dam_lag_96 = _get_price_at(dam_df, yesterday_block)
-
-        # ── RTM lags ──────────────────────────────────────────
-        rtm_lag_1  = _get_price_at(rtm_df, today_block - timedelta(minutes=15))
-        rtm_lag_4  = _get_price_at(rtm_df, today_block - timedelta(hours=1))
-        rtm_lag_96 = _get_price_at(rtm_df, yesterday_block)
-
-        # ── Spreads — use today's prices ──────────────────────
-        # DAM and GDAM use today_block reference (same as lag_96 lookups)
-        # RTM → None if not yet scraped → spread also None
-        dam_today  = _get_price_at(dam_df,  today_block)
-        gdam_today = _get_price_at(gdam_df, today_block)
-        rtm_today  = _get_price_at(rtm_df,  today_block)
-
-        dam_gdam_spread = (
-            round(dam_today - gdam_today, 4)
-            if dam_today is not None and gdam_today is not None
-            else None
-        )
-        rtm_dam_spread = (
-            round(rtm_today - dam_today, 4)
-            if rtm_today is not None and dam_today is not None
-            else None
-        )
-        rtm_gdam_spread = (
-            round(rtm_today - gdam_today, 4)
-            if rtm_today is not None and gdam_today is not None
-            else None
-        )
-
-        # ── Calendar features from tomorrow's block ───────────
-        hour     = tomorrow_block.hour
-        hour_sin = round(math.sin(2 * math.pi * hour / 24), 6)
-        hour_cos = round(math.cos(2 * math.pi * hour / 24), 6)
-        weekday  = tomorrow_block.weekday()
-
-        rows.append({
-            "datetime":        tomorrow_block.strftime("%Y-%m-%d %H:%M:%S"),
-            "DAM_GDAM_spread": dam_gdam_spread,
-            "DAM_MCP_lag_1":   dam_lag_1,
-            "DAM_MCP_lag_4":   dam_lag_4,
-            "DAM_MCP_lag_96":  dam_lag_96,
-            "GDAM_MCP_lag_4":  gdam_lag_4,
-            "RTM_DAM_spread":  rtm_dam_spread,
-            "RTM_GDAM_spread": rtm_gdam_spread,
-            "RTM_MCP_lag_1":   rtm_lag_1,
-            "RTM_MCP_lag_4":   rtm_lag_4,
-            "RTM_MCP_lag_96":  rtm_lag_96,
-            "hour":            hour,
-            "hour_cos":        hour_cos,
-            "hour_sin":        hour_sin,
-            "price_lag_192":   price_lag_192,
-            "price_lag_96":    price_lag_96,
-            "weekday":         weekday,
+    result_list = []
+    for row in rows:
+        result_list.append({
+            "id":              str(row.id),
+            "market":          row.market,
+            "region":          row.region,
+            "datetime_block":  str(row.datetime_block),
+            "mcp_rs_mwh":      float(row.mcp_rs_mwh)      if row.mcp_rs_mwh      is not None else None,
+            "cleared_buy_mw":  float(row.cleared_buy_mw)  if row.cleared_buy_mw  is not None else None,
+            "cleared_sell_mw": float(row.cleared_sell_mw) if row.cleared_sell_mw is not None else None,
+            "created_at":      str(row.created_at),
         })
 
-    return rows
+    return result_list
 
 
-# ─── DAM feature builder ──────────────────────────────────────────────────────
+# ─── Weather data fetch ───────────────────────────────────────────────────────
 
-def _build_features_dam(
-    gdam_df: pd.DataFrame,
-    dam_df: pd.DataFrame,
-    rtm_df: pd.DataFrame,
-    today: date,
-    tomorrow: date,
+async def _fetch_weather_data(
+    db: AsyncSession,
+    state: str,
+    start_date: date,
+    end_date: date,       # inclusive — must cover prediction day
 ) -> list[dict]:
     """
-    Builds 15 features for each of tomorrow's 96 blocks for the DAM model.
-
-    Lag reference point is today's equivalent block for all lookups.
-
-    Features:
-        price_lag_96        = DAM[today_block]             (96 steps before tomorrow)
-        price_lag_192       = DAM[yesterday_block]         (192 steps before tomorrow)
-        DAM_MCP_lag_4       = DAM[today_block - 1hr]
-        GDAM_MCP_lag_1      = GDAM[today_block - 15min]
-        GDAM_MCP_lag_4      = GDAM[today_block - 1hr]
-        GDAM_MCP_lag_96     = GDAM[yesterday_block]
-        RTM_MCP_lag_1       = RTM[today_block - 15min]
-        RTM_MCP_lag_4       = RTM[today_block - 1hr]
-        RTM_MCP_lag_96      = RTM[yesterday_block]
-        DAM_GDAM_spread     = DAM[today_block] - GDAM[today_block]
-        RTM_DAM_spread      = RTM[today_block] - DAM[today_block]
-        hour, hour_sin, hour_cos, weekday  (from tomorrow's block)
-
-    Note: price_lag_96 and price_lag_192 are DAM's own prices here,
-    unlike GDAM builder where they refer to GDAM prices.
+    Fetches raw raw_weather_forecasts rows.
+    Covers the full historical window PLUS the prediction day,
+    so the ML service can build future weather features.
+    end_date is inclusive.
     """
-    rows = []
+    result = await db.execute(
+        text("""
+            SELECT
+                id::text,
+                region,
+                datetime_hour,
+                temperature,
+                humidity,
+                cloud_cover,
+                wind_speed,
+                solar_irradiance,
+                rain,
+                fetched_at
+            FROM raw_weather_forecasts
+            WHERE
+                region           = :state
+                AND datetime_hour >= :start
+                AND datetime_hour <  :end
+            ORDER BY datetime_hour ASC
+        """),
+        {
+            "state": state,
+            "start": datetime.combine(start_date, datetime.min.time()),
+            "end":   datetime.combine(end_date + timedelta(days=1), datetime.min.time()),
+        }
+    )
 
-    for block_idx in range(96):
-        minutes = block_idx * 15
-
-        tomorrow_block  = datetime.combine(tomorrow, datetime.min.time()) + timedelta(minutes=minutes)
-        today_block     = datetime.combine(today, datetime.min.time()) + timedelta(minutes=minutes)
-        yesterday_block = datetime.combine(today - timedelta(days=1), datetime.min.time()) + timedelta(minutes=minutes)
-
-        # ── DAM lags ──────────────────────────────────────────
-        # price_lag_96/192 refer to DAM's own prices for the DAM model
-        price_lag_96  = _get_price_at(dam_df, today_block)
-        price_lag_192 = _get_price_at(dam_df, yesterday_block)
-        dam_lag_4     = _get_price_at(dam_df, today_block - timedelta(hours=1))
-
-        # ── GDAM lags ─────────────────────────────────────────
-        gdam_lag_1  = _get_price_at(gdam_df, today_block - timedelta(minutes=15))
-        gdam_lag_4  = _get_price_at(gdam_df, today_block - timedelta(hours=1))
-        gdam_lag_96 = _get_price_at(gdam_df, yesterday_block)
-
-        # ── RTM lags ──────────────────────────────────────────
-        rtm_lag_1  = _get_price_at(rtm_df, today_block - timedelta(minutes=15))
-        rtm_lag_4  = _get_price_at(rtm_df, today_block - timedelta(hours=1))
-        rtm_lag_96 = _get_price_at(rtm_df, yesterday_block)
-
-        # ── Spreads — use today's prices ──────────────────────
-        dam_today  = _get_price_at(dam_df,  today_block)
-        gdam_today = _get_price_at(gdam_df, today_block)
-        rtm_today  = _get_price_at(rtm_df,  today_block)
-
-        dam_gdam_spread = (
-            round(dam_today - gdam_today, 4)
-            if dam_today is not None and gdam_today is not None
-            else None
-        )
-        rtm_dam_spread = (
-            round(rtm_today - dam_today, 4)
-            if rtm_today is not None and dam_today is not None
-            else None
-        )
-
-        # ── Calendar features from tomorrow's block ───────────
-        hour     = tomorrow_block.hour
-        hour_sin = round(math.sin(2 * math.pi * hour / 24), 6)
-        hour_cos = round(math.cos(2 * math.pi * hour / 24), 6)
-        weekday  = tomorrow_block.weekday()
-
-        rows.append({
-            "datetime":        tomorrow_block.strftime("%Y-%m-%d %H:%M:%S"),
-            "price_lag_192":   price_lag_192,
-            "price_lag_96":    price_lag_96,
-            "weekday":         weekday,
-            "DAM_MCP_lag_4":   dam_lag_4,
-            "hour_sin":        hour_sin,
-            "hour":            hour,
-            "hour_cos":        hour_cos,
-            "GDAM_MCP_lag_1":  gdam_lag_1,
-            "GDAM_MCP_lag_4":  gdam_lag_4,
-            "GDAM_MCP_lag_96": gdam_lag_96,
-            "RTM_MCP_lag_1":   rtm_lag_1,
-            "RTM_MCP_lag_4":   rtm_lag_4,
-            "RTM_MCP_lag_96":  rtm_lag_96,
-            "DAM_GDAM_spread": dam_gdam_spread,
-            "RTM_DAM_spread":  rtm_dam_spread,
+    rows = result.fetchall()
+    result_list = []
+    for row in rows:
+        result_list.append({
+            "id":               str(row.id),
+            "region":           row.region,
+            "datetime_hour":    str(row.datetime_hour),
+            "temperature":      float(row.temperature)      if row.temperature      is not None else None,
+            "humidity":         float(row.humidity)         if row.humidity         is not None else None,
+            "cloud_cover":      float(row.cloud_cover)      if row.cloud_cover      is not None else None,
+            "wind_speed":       float(row.wind_speed)       if row.wind_speed       is not None else None,
+            "solar_irradiance": float(row.solar_irradiance) if row.solar_irradiance is not None else None,
+            "rain":             float(row.rain)             if row.rain             is not None else None,
+            "fetched_at":       str(row.fetched_at),
         })
 
-    return rows
-
-
-# ─── RTM feature builder (stub) ───────────────────────────────────────────────
-
-def _build_features_rtm(
-    gdam_df: pd.DataFrame,
-    dam_df: pd.DataFrame,
-    rtm_df: pd.DataFrame,
-    today: date,
-    tomorrow: date,
-) -> list[dict]:
-    """
-    RTM feature builder — STUB.
-
-    TODO (ML team): Replace dummy features with actual RTM model feature spec.
-    Current behaviour: returns a minimal dummy payload so the mock ML service
-    can generate predictions without crashing. The mock uses price_lag_96
-    as base price, which is computed here from RTM's own prices.
-
-    When RTM ML service is ready:
-    1. Get feature list from ML team (same format as DAM/GDAM feature_list JSON)
-    2. Implement actual feature computation below
-    3. Update ML_SERVICE_URL_RTM in .env to point to real service
-    """
-    rows = []
-
-    for block_idx in range(96):
-        minutes = block_idx * 15
-
-        tomorrow_block  = datetime.combine(tomorrow, datetime.min.time()) + timedelta(minutes=minutes)
-        today_block     = datetime.combine(today, datetime.min.time()) + timedelta(minutes=minutes)
-        yesterday_block = datetime.combine(today - timedelta(days=1), datetime.min.time()) + timedelta(minutes=minutes)
-
-        # Minimal features — enough for mock predict to use price_lag_96 as base
-        price_lag_96  = _get_price_at(rtm_df, today_block)
-        price_lag_192 = _get_price_at(rtm_df, yesterday_block)
-
-        hour     = tomorrow_block.hour
-        hour_sin = round(math.sin(2 * math.pi * hour / 24), 6)
-        hour_cos = round(math.cos(2 * math.pi * hour / 24), 6)
-        weekday  = tomorrow_block.weekday()
-
-        # Dummy row — column names don't matter for mock service
-        rows.append({
-            "datetime":      tomorrow_block.strftime("%Y-%m-%d %H:%M:%S"),
-            "price_lag_96":  price_lag_96,
-            "price_lag_192": price_lag_192,
-            "hour":          hour,
-            "hour_sin":      hour_sin,
-            "hour_cos":      hour_cos,
-            "weekday":       weekday,
-        })
-
-    return rows
-
-
-# ─── CSV builder ──────────────────────────────────────────────────────────────
-
-def _build_csv(feature_rows: list[dict]) -> str:
-    """
-    Converts feature rows into CSV string.
-    Column order is preserved from the dict key order —
-    each builder defines its own column order matching its model's expectation.
-    None values become NaN in pandas → written as empty in CSV.
-    ML models handle missing values correctly.
-    """
-    df = pd.DataFrame(feature_rows)
-    columns = list(feature_rows[0].keys())
-    return df[columns].to_csv(index=False)
+    return result_list
 
 
 # ─── Save predictions ─────────────────────────────────────────────────────────
@@ -433,7 +227,7 @@ async def _save_predictions(
     forecast_date: date,
 ) -> str:
     """
-    Saves 1 forecast_run row and 96 forecast rows.
+    Inserts 1 forecast_run row + 96 forecast rows.
     Returns forecast_run_id.
     """
     forecast_run_id = str(uuid.uuid4())
@@ -441,11 +235,11 @@ async def _save_predictions(
     await db.execute(
         text("""
             INSERT INTO forecast_runs
-            (id, market, region, forecast_date,
-             model_run_timestamp, status, created_at)
+                (id, market, region, forecast_date,
+                 model_run_timestamp, status, created_at)
             VALUES
-            (:id, :market, :region, :forecast_date,
-             :model_run_timestamp, :status, :created_at)
+                (:id, :market, :region, :forecast_date,
+                 :model_run_timestamp, :status, :created_at)
         """),
         {
             "id":                  forecast_run_id,
@@ -462,13 +256,13 @@ async def _save_predictions(
         await db.execute(
             text("""
                 INSERT INTO forecasts
-                (id, forecast_run_id, market, region,
-                 datetime_block, predicted_price,
-                 lower_ci, upper_ci, confidence_level, created_at)
+                    (id, forecast_run_id, market, region,
+                     datetime_block, predicted_price,
+                     lower_ci, upper_ci, confidence_level, created_at)
                 VALUES
-                (:id, :forecast_run_id, :market, :region,
-                 :datetime_block, :predicted_price,
-                 :lower_ci, :upper_ci, :confidence_level, :created_at)
+                    (:id, :forecast_run_id, :market, :region,
+                     :datetime_block, :predicted_price,
+                     :lower_ci, :upper_ci, :confidence_level, :created_at)
             """),
             {
                 "id":               str(uuid.uuid4()),
@@ -486,19 +280,3 @@ async def _save_predictions(
 
     await db.commit()
     return forecast_run_id
-
-
-# ─── Helper ───────────────────────────────────────────────────────────────────
-
-def _get_price_at(df: pd.DataFrame, target_time: datetime) -> float | None:
-    """
-    Gets MCP price at exact datetime from a market DataFrame.
-    Returns None if not found.
-    None → pandas writes NaN in CSV → ML model handles correctly.
-    """
-    if df.empty:
-        return None
-    match = df[df["datetime_block"] == pd.Timestamp(target_time)]
-    if not match.empty:
-        return round(float(match.iloc[0]["mcp_rs_mwh"]), 4)
-    return None

@@ -437,7 +437,11 @@ export default function DashboardPage() {
   // ── Audit Chart ────────────────────────────────────────
   const auditBlocks = auditData.filter((d) => d.actual_price != null);
   const mae = auditBlocks.length ? Math.round(auditBlocks.reduce((s, d) => s + Math.abs(d.predicted_price - (d.actual_price ?? 0)), 0) / auditBlocks.length) : 0;
-  const mape = auditBlocks.length ? (auditBlocks.reduce((s, d) => s + Math.abs((d.predicted_price - (d.actual_price ?? 0)) / (d.actual_price ?? 1)), 0) / auditBlocks.length * 100).toFixed(1) : "0";
+  // const mape = auditBlocks.length ? (auditBlocks.reduce((s, d) => s + Math.abs((d.predicted_price - (d.actual_price ?? 0)) / (d.actual_price ?? 1)), 0) / auditBlocks.length * 100).toFixed(1) : "0";
+  const totalActual = auditBlocks.reduce((s, d) => s + (d.actual_price ?? 0), 0);
+  const wmape = auditBlocks.length && totalActual > 0
+    ? (auditBlocks.reduce((s, d) => s + Math.abs(d.predicted_price - (d.actual_price ?? 0)), 0) / totalActual * 100).toFixed(1)
+    : "0";
   const worstBlock = auditBlocks.length ? auditBlocks.reduce((a, b) => Math.abs(a.predicted_price - (a.actual_price ?? 0)) > Math.abs(b.predicted_price - (b.actual_price ?? 0)) ? a : b) : null;
 
   const auditOption = useMemo(() => ({
@@ -555,48 +559,7 @@ export default function DashboardPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-2 ml-auto">
-          <button
-            onClick={() => setShowCI(!showCI)}
-            className={`text-xs px-3 py-1.5 rounded-md border transition-all ${showCI
-              ? "bg-zinc-900 text-white border-zinc-900"
-              : "bg-white text-zinc-400 border-zinc-200"
-              }`}
-          >
-            Confidence Interval
-          </button>
 
-          {showCI && availableCILevels.length === 1 && (
-            <Badge
-              variant="outline"
-              className="text-xs border-zinc-200"
-            >
-              {Math.round(availableCILevels[0] * 100)}% CI
-            </Badge>
-          )}
-
-          {showCI && availableCILevels.length > 1 && (
-            <Select
-              value={String(selectedCILevel)}
-              onValueChange={(v) => setSelectedCILevel(Number(v))}
-            >
-              <SelectTrigger className="w-24 h-8 text-xs border-zinc-200">
-                <SelectValue />
-              </SelectTrigger>
-
-              <SelectContent>
-                {availableCILevels.map((level) => (
-                  <SelectItem
-                    key={level}
-                    value={String(level)}
-                  >
-                    {Math.round(level * 100)}% CI
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
       </div>
 
       {/* Stats */}
@@ -638,11 +601,66 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div>
-            <p className="text-sm font-semibold text-zinc-700 mb-4">
-              {selectedMarket} · {selectedRegion} · Day-ahead forecast
-              {dataSource === "real" && <span className="ml-2 text-xs font-normal text-emerald-500">· Live data</span>}
-              {dataSource === "unavailable" && <span className="ml-2 text-xs font-normal text-amber-500">· No data available</span>}
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-sm font-semibold text-zinc-700">
+                {selectedMarket} · {selectedRegion} · Day-ahead forecast
+
+                {dataSource === "real" && (
+                  <span className="ml-2 text-xs font-normal text-emerald-500">
+                    · Live data
+                  </span>
+                )}
+
+                {dataSource === "unavailable" && (
+                  <span className="ml-2 text-xs font-normal text-amber-500">
+                    · No data available
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCI(!showCI)}
+                  className={`text-xs px-3 py-1.5 rounded-md border transition-all ${showCI
+                      ? "bg-zinc-900 text-white border-zinc-900"
+                      : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300"
+                    }`}
+                >
+                  Confidence Interval
+                </button>
+
+                {showCI && availableCILevels.length === 1 && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs border-zinc-200"
+                  >
+                    {Math.round(availableCILevels[0] * 100)}% CI
+                  </Badge>
+                )}
+
+                {showCI && availableCILevels.length > 1 && (
+                  <Select
+                    value={String(selectedCILevel)}
+                    onValueChange={(v) => setSelectedCILevel(Number(v))}
+                  >
+                    <SelectTrigger className="w-24 h-8 text-xs border-zinc-200">
+                      <SelectValue />
+                    </SelectTrigger>
+
+                    <SelectContent>
+                      {availableCILevels.map((level) => (
+                        <SelectItem
+                          key={level}
+                          value={String(level)}
+                        >
+                          {Math.round(level * 100)}% CI
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
             <ReactECharts option={forecastOption} notMerge={true} lazyUpdate={false} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} />
           </div>
         )}
@@ -700,11 +718,11 @@ export default function DashboardPage() {
               </Card>
               <Card className="p-4 border-zinc-100 shadow-none">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">MAPE</span>
+                  <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">WMAPE</span>
                   <Activity size={14} className="text-emerald-500" />
                 </div>
-                <p className="text-xl font-bold text-zinc-900">{mape}%</p>
-                <p className="text-xs text-zinc-400 mt-0.5">Mean absolute % error</p>
+                <p className="text-xl font-bold text-zinc-900">{wmape}%</p>
+                <p className="text-xs text-zinc-400 mt-0.5">Weighted mean absolute % error</p>
               </Card>
               <Card className="p-4 border-zinc-100 shadow-none">
                 <div className="flex items-center justify-between mb-2">

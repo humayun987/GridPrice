@@ -116,7 +116,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     logger.info(
         "[Scheduler] 3 jobs scheduled — "
-        "Scraper 19:20, Weather 19:25, Pipeline 19:30 (IST)"
+        "Scraper 9:00, Weather 9:30, Pipeline 9:45 (IST)"
     )
 
     return scheduler
