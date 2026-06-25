@@ -14,7 +14,7 @@ async def build_features_and_predict(
     New pipeline — no feature engineering in backend.
 
     1. Compute date range: 14 days of market history + prediction day weather
-    2. Fetch raw historical_prices rows for target market
+    2. Fetch raw historical_prices rows (GDAM + DAM always; RTM alone for RTM)
     3. Fetch raw raw_weather_forecasts rows (history + prediction day)
     4. Build JSON payload
     5. POST to ML service /predict
@@ -24,16 +24,24 @@ async def build_features_and_predict(
     print(f"[Pipeline] Starting for {state} - {target_market}")
 
     try:
-        today          = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-        tomorrow       = today + timedelta(days=1)       # prediction_date
-        market_start   = tomorrow - timedelta(days=14)   # 14 days back from prediction_date
+        today        = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        tomorrow     = today + timedelta(days=1)
+        market_start = tomorrow - timedelta(days=14)
 
         # ── Step 1: Fetch raw market data ─────────────────────
-        # Range: market_start (inclusive) → today (inclusive)
-        # i.e. 14 full days ending yesterday relative to prediction_date
-        market_data = await _fetch_market_data(
-            db, state, target_market, market_start, today
-        )
+        # DAM and GDAM models both require GDAM + DAM rows in the
+        # same payload (ML service does an inner join on datetime).
+        # RTM uses only its own rows (mock service, stub model).
+        if target_market in ("DAM", "GDAM"):
+            markets_to_fetch = ["GDAM", "DAM"]
+        else:
+            markets_to_fetch = [target_market]
+
+        market_data = []
+        for m in markets_to_fetch:
+            rows = await _fetch_market_data(db, state, m, market_start, today)
+            market_data.extend(rows)
+
         if not market_data:
             raise ValueError(
                 f"No market data for {state}/{target_market}. "
@@ -104,10 +112,10 @@ async def _fetch_market_data(
     state: str,
     market: str,
     start_date: date,
-    end_date: date,       # inclusive
+    end_date: date,
 ) -> list[dict]:
     """
-    Fetches raw historical_prices rows for the given market.
+    Fetches raw historical_prices rows for a single market.
     start_date inclusive, end_date inclusive (end of that day).
     Returns list of plain dicts — directly JSON-serialisable.
     """
@@ -124,8 +132,8 @@ async def _fetch_market_data(
                 created_at
             FROM historical_prices
             WHERE
-                region         = :state
-                AND market     = :market
+                region             = :state
+                AND market         = :market
                 AND datetime_block >= :start
                 AND datetime_block <  :end
             ORDER BY datetime_block ASC
@@ -134,8 +142,6 @@ async def _fetch_market_data(
             "state":  state,
             "market": market,
             "start":  datetime.combine(start_date, datetime.min.time()),
-            # exclude the first block of end_date + 1 day
-            # i.e. include everything up to 23:45 of end_date
             "end":    datetime.combine(end_date + timedelta(days=1), datetime.min.time()),
         }
     )
@@ -163,7 +169,7 @@ async def _fetch_weather_data(
     db: AsyncSession,
     state: str,
     start_date: date,
-    end_date: date,       # inclusive — must cover prediction day
+    end_date: date,
 ) -> list[dict]:
     """
     Fetches raw raw_weather_forecasts rows.
@@ -186,7 +192,7 @@ async def _fetch_weather_data(
                 fetched_at
             FROM raw_weather_forecasts
             WHERE
-                region           = :state
+                region            = :state
                 AND datetime_hour >= :start
                 AND datetime_hour <  :end
             ORDER BY datetime_hour ASC

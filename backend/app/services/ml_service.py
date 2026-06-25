@@ -58,7 +58,6 @@ async def _real_predict(
     print(f"[ML] Response received, parsing ({market})...")
     return _parse_response(data, market, prediction_date)
 
-
 # ─── Response parser ──────────────────────────────────────────────────────────
 
 def _parse_response(data: dict, market: str, prediction_date: date) -> list[dict]:
