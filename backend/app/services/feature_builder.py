@@ -26,7 +26,7 @@ async def build_features_and_predict(
     try:
         today        = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         tomorrow     = today + timedelta(days=1)
-        market_start = tomorrow - timedelta(days=14)
+        market_start = tomorrow - timedelta(days=11)
 
         # ── Step 1: Fetch raw market data ─────────────────────
         # DAM and GDAM models both require GDAM + DAM rows in the

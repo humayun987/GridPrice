@@ -47,11 +47,13 @@ async def _real_predict(
     market: str,
     prediction_date: date,
 ) -> list[dict]:
-    url = f"{base_url}/predict"
+    url = f"{base_url}/predict/{market.lower()}"
     print(f"[ML] Calling: {url}")
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(url, json=payload)
+        if response.status_code != 200:
+            print(f"[ML][{market}] {response.status_code}: {response.text}")
         response.raise_for_status()
         data = response.json()
 
