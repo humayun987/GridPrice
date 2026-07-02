@@ -336,8 +336,8 @@ export default function DashboardPage() {
           html += `<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">P90:</span><span style="font-weight:600">${f(d.upper_ci ?? 0)}</span></div>`;
           html += `<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">P10:</span><span style="font-weight:600">${f(d.lower_ci ?? 0)}</span></div>`;
         }
-        const dr = demandRatios[idx];
-        if (dr != null) html += `<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">Demand Ratio:</span><span style="font-weight:600">${dr}</span></div>`;
+        // const dr = demandRatios[idx];
+        // if (dr != null) html += `<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">Demand Ratio:</span><span style="font-weight:600">${dr}</span></div>`;
         return html;
       },
     },
@@ -366,17 +366,17 @@ export default function DashboardPage() {
         nameGap: 55,
         nameTextStyle: { color: "#71717a", fontSize: 11 },
       },
-      {
-        type: "value",
-        axisLabel: { color: "#93c5fd", fontSize: 11 },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        name: "Demand/Supply Ratio",
-        nameLocation: "middle",
-        nameGap: 55,
-        nameTextStyle: { color: "#93c5fd", fontSize: 11 },
-      },
+      // {
+      //   type: "value",
+      //   axisLabel: { color: "#93c5fd", fontSize: 11 },
+      //   axisLine: { show: false },
+      //   axisTick: { show: false },
+      //   splitLine: { show: false },
+      //   name: "Demand/Supply Ratio",
+      //   nameLocation: "middle",
+      //   nameGap: 55,
+      //   nameTextStyle: { color: "#93c5fd", fontSize: 11 },
+      // },
     ],
     series: [
       ...(showCI ? [
@@ -422,15 +422,15 @@ export default function DashboardPage() {
         yAxisIndex: 0,
         z: 10,
       },
-      ...(demandRatios.length > 0 ? [{
-        name: "Demand Ratio",
-        type: "line",
-        data: demandRatios,
-        lineStyle: { color: "#3b82f6", width: 1.5, type: "dashed" },
-        itemStyle: { color: "#3b82f6" },
-        symbol: "none",
-        yAxisIndex: 1,
-      }] : []),
+      // ...(demandRatios.length > 0 ? [{
+      //   name: "Demand Ratio",
+      //   type: "line",
+      //   data: demandRatios,
+      //   lineStyle: { color: "#3b82f6", width: 1.5, type: "dashed" },
+      //   itemStyle: { color: "#3b82f6" },
+      //   symbol: "none",
+      //   yAxisIndex: 1,
+      // }] : []),
     ],
   }), [forecastData, demandRatios, showCI, blocks, predicted, lowerCI, ciDiff, availableCILevels, selectedCILevel]);
 

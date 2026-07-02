@@ -22,7 +22,7 @@ const DATE_OPTIONS = Array.from({ length: 8 }, (_, i) => {
   d.setDate(d.getDate() - i);
   return {
     label: i === 0 ? "Today" : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }),
-    date: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,
+    date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
   };
 });
 
@@ -279,6 +279,8 @@ export default function ComparePage() {
         ) : (
           <ReactECharts
             option={chartOption}
+            notMerge={true}
+            lazyUpdate={false}
             style={{ height: "420px", width: "100%" }}
             opts={{ renderer: "canvas" }}
             onChartReady={(chart) => setChartInstance(chart)}
