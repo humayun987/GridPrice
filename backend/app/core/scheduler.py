@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime
+from datetime import timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.core.database import AsyncSessionLocal
@@ -36,7 +38,26 @@ async def run_mcp_scraper():
                 except Exception as e:
                     logger.error(f"[Scheduler] Scrape failed {market}/{state}: {e}")
 
+async def run_rtm_backfill():
+    """Backfill yesterday's RTM data — finalized ~23:45 previous day."""
+    yesterday = (datetime.now(IST) - timedelta(days=1)).strftime('%Y-%m-%d')
+    for state in ACTIVE_STATES:
+        async with AsyncSessionLocal() as db:
+            try:
+                from app.services.scraper import scrape_today_mcp
+                from app.core.redis import cache_delete_pattern
 
+                result = await scrape_today_mcp(
+                    db, market="RTM", state=state, target_date=yesterday
+                )
+                logger.info(f"[Scheduler] RTM backfill {state} for {yesterday}: {result}")
+
+                await cache_delete_pattern(f"historical:RTM:{state}:*")
+                await cache_delete_pattern("availability")
+
+            except Exception as e:
+                logger.error(f"[Scheduler] RTM backfill failed {state} for {yesterday}: {e}")
+                
 # ─── Job 2: Weather fetch ─────────────────────────────────────────────────────
 
 async def run_weather_fetch():
@@ -91,6 +112,14 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 
     scheduler.add_job(
+        run_rtm_backfill,
+        trigger=CronTrigger(hour=8, minute=30, timezone=IST),
+        id="rtm_backfill",
+        name="RTM Backfill — yesterday's RTM (finalized 23:45)",
+        replace_existing=True,
+    )
+    
+    scheduler.add_job(
         run_mcp_scraper,
         trigger=CronTrigger(hour=9, minute=0, timezone=IST),
         id="mcp_scraper",
@@ -115,8 +144,8 @@ def create_scheduler() -> AsyncIOScheduler:
     )
 
     logger.info(
-        "[Scheduler] 3 jobs scheduled — "
-        "Scraper 9:00, Weather 9:30, Pipeline 9:45 (IST)"
+        "[Scheduler] 4 jobs scheduled — "
+        "RTM Backfill 8:30, Scraper 9:00, Weather 9:30, Pipeline 9:45 (IST)"
     )
 
     return scheduler

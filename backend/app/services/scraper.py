@@ -21,7 +21,7 @@ _executor = ThreadPoolExecutor(max_workers=2)
 
 # ─── Browser scraping logic (sync) ───────────────────────────────────────────
 
-def _scrape_sync(market: str, state: str, today_date: str, temp_file: str) -> dict:
+def _scrape_sync(market: str, state: str, scrape_date: str, temp_file: str) -> dict:
     """
     Runs Playwright synchronously.
     Used on Windows (dev) via thread pool.
@@ -47,9 +47,9 @@ def _scrape_sync(market: str, state: str, today_date: str, temp_file: str) -> di
                 f'.dropdown-menu.show >> text="{state}"'
             ).first.click()
 
-            print(f"[Scraper] Setting date to: {today_date}...")
-            page.locator('#fromDate').fill(today_date)
-            page.locator('#toDate').fill(today_date)
+            print(f"[Scraper] Setting date to: {scrape_date}...")
+            page.locator('#fromDate').fill(scrape_date)
+            page.locator('#toDate').fill(scrape_date)
 
             print("[Scraper] Submitting search...")
             page.locator('#submit_btn').click()
@@ -80,7 +80,8 @@ def _scrape_sync(market: str, state: str, today_date: str, temp_file: str) -> di
 async def scrape_today_mcp(
     db: AsyncSession,
     market: str = "GDAM",
-    state: str = "Telangana"
+    state: str = "Telangana",
+    target_date: str | None = None,
 ) -> dict:
     """
     Scrapes today's market data from iexrtmprice.com.
@@ -92,9 +93,11 @@ async def scrape_today_mcp(
     started_at = datetime.utcnow()
     rows_written = 0
     error_message = None
-    today_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d')
-    # temp_file = f"temp_scrape_{today_date}.csv"
-    temp_file = f"temp_scrape_{market}_{state}_{today_date}.csv"
+    if target_date:
+        scrape_date = target_date
+    else:
+        scrape_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d')
+    temp_file = f"temp_scrape_{market}_{state}_{scrape_date}.csv"
     try:
         # ── Step 1: Run browser scraping ──────────────────────
         # On Windows — run in thread pool to avoid event loop restriction
@@ -106,7 +109,7 @@ async def scrape_today_mcp(
             _scrape_sync,
             market,
             state,
-            today_date,
+            scrape_date,
             temp_file
         )
 
@@ -139,7 +142,7 @@ async def scrape_today_mcp(
                 hour = int(start_time.split(":")[0])
                 minute = int(start_time.split(":")[1])
 
-                delivery_date = str(row.get("delivery_date", today_date))
+                delivery_date = str(row.get("delivery_date", scrape_date))
                 try:
                     base_date = datetime.strptime(delivery_date.strip(), "%d/%m/%Y")
                 except ValueError:
@@ -164,6 +167,12 @@ async def scrape_today_mcp(
                         (:id, :market, :region, :datetime_block,
                          :cleared_buy_mw, :cleared_sell_mw,
                          :mcp_rs_mwh, :created_at)
+                        ON CONFLICT (market, region, datetime_block)
+                        DO UPDATE SET
+                            cleared_buy_mw = EXCLUDED.cleared_buy_mw,
+                            cleared_sell_mw = EXCLUDED.cleared_sell_mw,
+                            mcp_rs_mwh = EXCLUDED.mcp_rs_mwh,
+                            created_at = EXCLUDED.created_at
                     """),
                     {
                         "id": str(uuid.uuid4()),
