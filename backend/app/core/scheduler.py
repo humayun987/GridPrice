@@ -38,8 +38,7 @@ async def run_mcp_scraper():
                 except Exception as e:
                     logger.error(f"[Scheduler] Scrape failed {market}/{state}: {e}")
 
-async def run_rtm_backfill():
-    """Backfill yesterday's RTM data — finalized ~23:45 previous day."""
+    # RTM backfill — runs after all today's scrapes, same job, same trigger
     yesterday = (datetime.now(IST) - timedelta(days=1)).strftime('%Y-%m-%d')
     for state in ACTIVE_STATES:
         async with AsyncSessionLocal() as db:
@@ -57,7 +56,7 @@ async def run_rtm_backfill():
 
             except Exception as e:
                 logger.error(f"[Scheduler] RTM backfill failed {state} for {yesterday}: {e}")
-                
+       
 # ─── Job 2: Weather fetch ─────────────────────────────────────────────────────
 
 async def run_weather_fetch():
@@ -110,14 +109,6 @@ async def run_pipeline():
 
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
-
-    scheduler.add_job(
-        run_rtm_backfill,
-        trigger=CronTrigger(hour=8, minute=30, timezone=IST),
-        id="rtm_backfill",
-        name="RTM Backfill — yesterday's RTM (finalized 23:45)",
-        replace_existing=True,
-    )
     
     scheduler.add_job(
         run_mcp_scraper,
@@ -144,8 +135,8 @@ def create_scheduler() -> AsyncIOScheduler:
     )
 
     logger.info(
-        "[Scheduler] 4 jobs scheduled — "
-        "RTM Backfill 8:30, Scraper 9:00, Weather 9:30, Pipeline 9:45 (IST)"
+        "[Scheduler] 3 jobs scheduled — "
+        "Scraper 9:00 (incl. RTM backfill), Weather 9:30, Pipeline 9:45 (IST)"
     )
 
     return scheduler
