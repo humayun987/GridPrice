@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.routers import auth, admin
 from app.core.scheduler import create_scheduler
 from app.services.scraper import scrape_today_mcp
+from app.core.scheduler import run_mcp_scraper
 from app.services.weather import fetch_tomorrow_weather
 from app.routers import forecasts
 from app.routers.exports import router as exports_router
@@ -90,6 +91,11 @@ async def test_scrape_all_markets(
     await cache_delete_pattern("availability")
     return results
 
+@app.post("/test/run-mcp-scraper")
+async def test_run_mcp_scraper():
+    """Manually trigger the full scheduled scraper job, including RTM backfill — for testing only."""
+    await run_mcp_scraper()
+    return {"status": "triggered — check logs for details"}
 
 @app.post("/test/fetch-weather")
 async def test_fetch_weather(
