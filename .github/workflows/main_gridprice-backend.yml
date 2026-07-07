@@ -31,10 +31,10 @@ jobs:
       - name: Build and push container image to registry
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./backend
           push: true
           tags: gridpriceacr01.azurecr.io/${{ secrets.AZUREAPPSERVICE_CONTAINERUSERNAME_082345E7BEA546F5A37AC7501B774678 }}/gridprice-backend:${{ github.sha }}
-          file: ./Dockerfile
+          file: ./backend/Dockerfile
 
   deploy:
     runs-on: ubuntu-latest
