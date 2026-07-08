@@ -358,7 +358,7 @@ export default function DashboardPage() {
       {
         type: "value",
         axisLabel: { color: "#71717a", fontSize: 11, formatter: (v: number) => `₹${(v / 1000).toFixed(0)}k` },
-        splitLine: { lineStyle: { color: "#f4f4f5", type: "dashed" } },
+        splitLine: { show: false, },
         axisLine: { show: false },
         axisTick: { show: false },
         name: "Price (Rs/MWh)",
@@ -396,7 +396,11 @@ export default function DashboardPage() {
           name: "P90 (Upper Band)",
           type: "line",
           data: ciDiff,
-          lineStyle: { opacity: 0 },
+          lineStyle: {
+            color: "#8f8f98",
+            width: 1,
+            type: "dashed",
+          },
           areaStyle: { color: "rgba(161,161,170,0.18)" },
           stack: "ci",
           symbol: "none",
@@ -406,7 +410,11 @@ export default function DashboardPage() {
           name: "P10 (Lower Band)",
           type: "line",
           data: lowerCI,
-          lineStyle: { color: "#a1a1aa", width: 1, type: "dashed" },
+          lineStyle: {
+            color: "#8f8f98",
+            width: 1,
+            type: "dashed",
+          },
           symbol: "none",
           yAxisIndex: 0,
         },
@@ -443,71 +451,238 @@ export default function DashboardPage() {
     ? (auditBlocks.reduce((s, d) => s + Math.abs(d.predicted_price - (d.actual_price ?? 0)), 0) / totalActual * 100).toFixed(1)
     : "0";
   const worstBlock = auditBlocks.length ? auditBlocks.reduce((a, b) => Math.abs(a.predicted_price - (a.actual_price ?? 0)) > Math.abs(b.predicted_price - (b.actual_price ?? 0)) ? a : b) : null;
+  const intervalBlocks = auditBlocks.filter(
+    (d) => d.lower_ci != null && d.upper_ci != null && d.actual_price != null
+  );
 
-  const auditOption = useMemo(() => ({
-    backgroundColor: "transparent",
-    tooltip: {
-      trigger: "axis",
-      backgroundColor: "#18181b",
-      borderColor: "#27272a",
-      textStyle: { color: "#fff", fontSize: 12 },
-      formatter: (params: any) => {
-        const idx = params[0]?.dataIndex;
-        const d = auditBlocks[idx];
-        if (!d) return "";
-        const f = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-        const err = d.actual_price ? Math.abs(((d.predicted_price - d.actual_price) / d.actual_price) * 100).toFixed(1) : "0";
-        return `<div style="font-weight:600;margin-bottom:6px">Block ${d.block} · ${d.datetime_block}</div>
-          <div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">Actual:</span><span style="font-weight:600">${f(d.actual_price ?? 0)}</span></div>
-          <div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="color:#a1a1aa">Predicted:</span><span style="font-weight:600">${f(d.predicted_price)}</span></div>
-          <div style="margin-top:4px;color:#f59e0b;font-size:11px">Error: ${err}%</div>`;
+  const coveragePct = intervalBlocks.length
+    ? (
+      (intervalBlocks.filter(
+        (d) =>
+          (d.actual_price ?? 0) >= (d.lower_ci ?? 0) &&
+          (d.actual_price ?? 0) <= (d.upper_ci ?? 0)
+      ).length /
+        intervalBlocks.length) *
+      100
+    ).toFixed(1)
+    : "0.0";
+
+  const belowBandRate = intervalBlocks.length
+    ? (
+      (intervalBlocks.filter(
+        (d) => (d.actual_price ?? 0) < (d.lower_ci ?? 0)
+      ).length /
+        intervalBlocks.length) *
+      100
+    ).toFixed(1)
+    : "0.0";
+
+  const aboveBandRate = intervalBlocks.length
+    ? (
+      (intervalBlocks.filter(
+        (d) => (d.actual_price ?? 0) > (d.upper_ci ?? 0)
+      ).length /
+        intervalBlocks.length) *
+      100
+    ).toFixed(1)
+    : "0.0";
+
+  const avgIntervalWidth = intervalBlocks.length
+    ? Math.round(
+      intervalBlocks.reduce(
+        (s, d) => s + ((d.upper_ci ?? 0) - (d.lower_ci ?? 0)),
+        0
+      ) / intervalBlocks.length
+    )
+    : 0;
+
+  const bias = auditBlocks.length
+    ? Math.round(
+      auditBlocks.reduce(
+        (s, d) => s + ((d.predicted_price ?? 0) - (d.actual_price ?? 0)),
+        0
+      ) / auditBlocks.length
+    )
+    : 0;
+
+  const auditLowerCI = auditBlocks.map((d) => d.lower_ci ?? null);
+  const auditUpperCI = auditBlocks.map((d) => d.upper_ci ?? null);
+  const auditBandWidth = auditBlocks.map((d, i) => {
+    const low = auditLowerCI[i];
+    const up = auditUpperCI[i];
+    return low != null && up != null ? up - low : 0;
+  });
+
+  const auditOption = useMemo(
+    () => ({
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#18181b",
+        borderColor: "#27272a",
+        textStyle: { color: "#fff", fontSize: 12 },
+        formatter: (params: any) => {
+          const idx = params[0]?.dataIndex;
+          const d = auditBlocks[idx];
+          if (!d) return "";
+
+          const f = (v: number) =>
+            `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+
+          const actual = d.actual_price ?? 0;
+          const lower = d.lower_ci ?? 0;
+          const upper = d.upper_ci ?? 0;
+          const insideBand = actual >= lower && actual <= upper;
+          const errPct = actual
+            ? Math.abs(((d.predicted_price - actual) / actual) * 100).toFixed(1)
+            : "0";
+
+          return `
+            <div style="font-weight:600;margin-bottom:6px">
+              Block ${d.block} · ${d.datetime_block}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:3px 0">
+              <span style="color:#a1a1aa">Actual:</span>
+              <span style="font-weight:600">${f(actual)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:3px 0">
+              <span style="color:#a1a1aa">P50 Forecast:</span>
+              <span style="font-weight:600">${f(d.predicted_price)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:3px 0">
+              <span style="color:#a1a1aa">P10:</span>
+              <span style="font-weight:600">${f(lower)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:3px 0">
+              <span style="color:#a1a1aa">P90:</span>
+              <span style="font-weight:600">${f(upper)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:3px 0">
+              <span style="color:#a1a1aa">Band Status:</span>
+              <span style="font-weight:600;color:${insideBand ? "#10b981" : "#ef4444"
+            }">
+                ${insideBand ? "Inside CI" : "Outside CI"}
+              </span>
+            </div>
+            <div style="margin-top:4px;color:#f59e0b;font-size:11px">
+              Error: ${errPct}%
+            </div>
+          `;
+        },
       },
-    },
-    legend: { bottom: 0, textStyle: { color: "#71717a", fontSize: 12 } },
-    grid: { top: 20, left: 70, right: 30, bottom: 75 },
-    xAxis: {
-      type: "category",
-      data: auditBlocks.map((d) => d.block),
-      axisLabel: { color: "#71717a", fontSize: 11, interval: 7 },
-      axisLine: { lineStyle: { color: "#e4e4e7" } },
-      axisTick: { show: false },
-      name: "Time Block",
-      nameLocation: "middle",
-      nameGap: 30,
-      nameTextStyle: { color: "#71717a", fontSize: 11 },
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#71717a", fontSize: 11, formatter: (v: number) => `₹${(v / 1000).toFixed(0)}k` },
-      splitLine: { lineStyle: { color: "#f4f4f5", type: "dashed" } },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      name: "Price (Rs/MWh)",
-      nameLocation: "middle",
-      nameGap: 55,
-      nameTextStyle: { color: "#71717a", fontSize: 11 },
-    },
-    series: [
-      {
-        name: "Actual Price",
-        type: "line",
-        data: auditBlocks.map((d) => d.actual_price),
-        lineStyle: { color: "#27272a", width: 2.5 },
-        itemStyle: { color: "#27272a" },
-        symbol: "circle",
-        symbolSize: 4,
+      legend: {
+        bottom: 0,
+        data: ["P50 Forecast", "Actual Price", "P10–P90 Interval"],
+        textStyle: {
+          color: "#71717a",
+          fontSize: 12,
+        },
       },
-      {
-        name: "Predicted Price",
-        type: "line",
-        data: auditBlocks.map((d) => d.predicted_price),
-        lineStyle: { color: "#10b981", width: 2, type: "dashed" },
-        itemStyle: { color: "#10b981" },
-        symbol: "circle",
-        symbolSize: 4,
+      grid: { top: 20, left: 70, right: 30, bottom: 75 },
+      xAxis: {
+        type: "category",
+        data: auditBlocks.map((d) => d.block),
+        axisLabel: { color: "#71717a", fontSize: 11, interval: 7 },
+        axisLine: { lineStyle: { color: "#e4e4e7" } },
+        axisTick: { show: false },
+        name: "Time Block",
+        nameLocation: "middle",
+        nameGap: 30,
+        nameTextStyle: { color: "#71717a", fontSize: 11 },
       },
-    ],
-  }), [auditBlocks]);
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          color: "#71717a",
+          fontSize: 11,
+          formatter: (v: number) => `₹${(v / 1000).toFixed(0)}k`,
+        },
+        splitLine: { show: false, },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        name: "Price (Rs/MWh)",
+        nameLocation: "middle",
+        nameGap: 55,
+        nameTextStyle: { color: "#71717a", fontSize: 11 },
+      },
+      series: [
+        {
+          name: "P10–P90 Interval",
+          type: "line",
+          data: auditLowerCI,
+          lineStyle: {
+            color: "#a1a1aa",
+            width: 1,
+            opacity: 1,
+          },
+          areaStyle: {
+            color: "transparent",
+          },
+          stack: "ci",
+          symbol: "none",
+          silent: true,
+          legendHoverLink: false,
+          yAxisIndex: 0,
+        },
+        {
+          name: "P10–P90 Interval",
+          type: "line",
+          data: auditBandWidth,
+          lineStyle: {
+            color: "#a1a1aa",
+            width: 1,
+            opacity: 1,
+          },
+          areaStyle: { color: "rgba(161,161,170,0.18)" },
+          stack: "ci",
+          symbol: "none",
+          yAxisIndex: 0,
+        },
+        {
+          name: "P50 Forecast",
+          type: "line",
+          data: auditBlocks.map((d) => d.predicted_price),
+          lineStyle: { color: "#10b981", width: 2.25 },
+          itemStyle: { color: "#10b981" },
+          symbol: "circle",
+          symbolSize: 4,
+          yAxisIndex: 0,
+        },
+        {
+          name: "Actual Price",
+          type: "line",
+          data: auditBlocks.map((d, i) => {
+            const actual = d.actual_price ?? 0;
+            const lower = auditLowerCI[i];
+            const upper = auditUpperCI[i];
+
+            const outsideBand =
+              lower != null &&
+              upper != null &&
+              (actual < lower || actual > upper);
+
+            return {
+              value: actual,
+              itemStyle: {
+                color: outsideBand ? "#ef4444" : "#27272a",
+              },
+            };
+          }),
+          lineStyle: {
+            color: "#27272a",
+            width: 2.25,
+          },
+          itemStyle: {
+            color: "#27272a",
+          },
+          symbol: "circle",
+          symbolSize: 4,
+          z: 10,
+        },
+      ],
+    }),
+    [auditBlocks, auditBandWidth, auditLowerCI, auditUpperCI]
+  );
 
   return (
     <div className="space-y-6">
@@ -622,8 +797,8 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setShowCI(!showCI)}
                   className={`text-xs px-3 py-1.5 rounded-md border transition-all ${showCI
-                      ? "bg-zinc-900 text-white border-zinc-900"
-                      : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300"
+                    ? "bg-zinc-900 text-white border-zinc-900"
+                    : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300"
                     }`}
                 >
                   Confidence Interval
@@ -661,7 +836,17 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-            <ReactECharts option={forecastOption} notMerge={true} lazyUpdate={false} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} />
+            {/* <ReactECharts option={forecastOption} notMerge={true} lazyUpdate={false} style={{ height: "420px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setForecastChartInstance(chart)} /> */}
+            <div className="chart-grid-background rounded-lg overflow-hidden">
+              <ReactECharts
+                option={forecastOption}
+                notMerge={true}
+                lazyUpdate={false}
+                style={{ height: "420px", width: "100%" }}
+                opts={{ renderer: "canvas" }}
+                onChartReady={(chart) => setForecastChartInstance(chart)}
+              />
+            </div>
           </div>
         )}
       </Card>
@@ -677,7 +862,9 @@ export default function DashboardPage() {
       <div className="pt-2 border-t border-zinc-100">
         <div className="mb-4">
           <h2 className="text-base font-bold text-zinc-900">Performance Audit</h2>
-          <p className="text-zinc-500 text-sm mt-0.5">Compare forecast accuracy against actual market prices</p>
+          <p className="text-zinc-500 text-sm mt-0.5">
+            Compare point accuracy and interval calibration against actual market prices
+          </p>
         </div>
 
         <div className="flex items-center gap-2 mb-5 flex-wrap">
@@ -707,37 +894,136 @@ export default function DashboardPage() {
           </Card>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <Card className="p-4 border-zinc-100 shadow-none">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">MAE</span>
-                  <Target size={14} className="text-blue-500" />
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    MAE
+                  </span>
+                  <Target size={13} className="text-blue-500" />
                 </div>
-                <p className="text-xl font-bold text-zinc-900">₹{mae.toLocaleString("en-IN")}</p>
-                <p className="text-xs text-zinc-400 mt-0.5">Mean absolute error</p>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  ₹{mae.toLocaleString("en-IN")}
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Mean absolute error
+                </p>
               </Card>
-              <Card className="p-4 border-zinc-100 shadow-none">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">WMAPE</span>
-                  <Activity size={14} className="text-emerald-500" />
+
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    WMAPE
+                  </span>
+                  <Activity size={13} className="text-emerald-500" />
                 </div>
-                <p className="text-xl font-bold text-zinc-900">{wmape}%</p>
-                <p className="text-xs text-zinc-400 mt-0.5">Weighted mean absolute % error</p>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  {wmape}%
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Weighted mean absolute % error
+                </p>
               </Card>
-              <Card className="p-4 border-zinc-100 shadow-none">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Worst Block</span>
-                  <AlertCircle size={14} className="text-amber-500" />
+
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    Coverage
+                  </span>
+                  <Target size={13} className="text-emerald-500" />
                 </div>
-                <p className="text-xl font-bold text-zinc-900">Block {worstBlock?.block ?? "—"}</p>
-                <p className="text-xs text-zinc-400 mt-0.5">{worstBlock ? `${worstBlock.datetime_block} · highest deviation` : "No data"}</p>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  {coveragePct}%
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Actual inside [P10, P90]
+                </p>
+              </Card>
+
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    Band Miss
+                  </span>
+                  <AlertCircle size={13} className="text-amber-500" />
+                </div>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  {belowBandRate}% / {aboveBandRate}%
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Below / above CI level
+                </p>
+              </Card>
+
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    Bias
+                  </span>
+
+                  {bias > 0 ? (
+                    <TrendingUp size={13} className="text-red-500" />
+                  ) : bias < 0 ? (
+                    <TrendingDown size={13} className="text-blue-500" />
+                  ) : (
+                    <Activity size={13} className="text-zinc-500" />
+                  )}
+                </div>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  {bias > 0 ? "+" : bias < 0 ? "−" : ""}
+                  ₹{Math.abs(bias).toLocaleString("en-IN")}
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  {bias > 0
+                    ? "Average over-forecast"
+                    : bias < 0
+                      ? "Average under-forecast"
+                      : "No directional bias"}
+                </p>
+              </Card>
+              <Card className="p-3 border-zinc-100 shadow-none">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                    Worst Block
+                  </span>
+
+                  <AlertCircle size={13} className="text-red-500" />
+                </div>
+
+                <p className="text-lg font-bold text-zinc-900">
+                  Block {worstBlock?.block ?? "—"}
+                </p>
+
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  {worstBlock
+                    ? `${worstBlock.datetime_block} · highest deviation`
+                    : "No data"}
+                </p>
               </Card>
             </div>
             <Card className="p-6 border-zinc-100 shadow-none">
               <p className="text-sm font-semibold text-zinc-700 mb-4">
                 Actual vs Predicted · {days[auditDay]?.label} · {selectedMarket}
               </p>
-              <ReactECharts option={auditOption} style={{ height: "320px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setAuditChartInstance(chart)} />
+              {/* <ReactECharts option={auditOption} style={{ height: "320px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setAuditChartInstance(chart)} /> */}
+              <div className="chart-grid-background rounded-lg overflow-hidden">
+                <ReactECharts
+                  option={auditOption}
+                  style={{ height: "320px", width: "100%" }}
+                  opts={{ renderer: "canvas" }}
+                  onChartReady={(chart) => setAuditChartInstance(chart)}
+                />
+              </div>
             </Card>
           </>
         )}

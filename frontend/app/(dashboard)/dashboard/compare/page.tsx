@@ -277,14 +277,16 @@ export default function ComparePage() {
             </div>
           </div>
         ) : (
-          <ReactECharts
-            option={chartOption}
-            notMerge={true}
-            lazyUpdate={false}
-            style={{ height: "420px", width: "100%" }}
-            opts={{ renderer: "canvas" }}
-            onChartReady={(chart) => setChartInstance(chart)}
-          />
+          <div className="chart-grid-background rounded-lg overflow-hidden">
+            <ReactECharts
+              option={chartOption}
+              notMerge={true}
+              lazyUpdate={false}
+              style={{ height: "420px", width: "100%" }}
+              opts={{ renderer: "canvas" }}
+              onChartReady={(chart) => setChartInstance(chart)}
+            />
+          </div>
         )}
       </Card>
 

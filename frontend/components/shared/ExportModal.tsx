@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import apiClient from "@/lib/api";
+import { AlertCircle } from "lucide-react";
 
 // ─────────────────────── Types ───────────────────────
 
@@ -230,7 +231,7 @@ export function ExportModal({
       const dataUrl = currentChart.getDataURL({
         type: "png",
         pixelRatio: 2,
-        backgroundColor: "#0f0f1a",
+        backgroundColor: "#ffffff",
       });
 
       const filename =
@@ -350,10 +351,16 @@ export function ExportModal({
                   type="date"
                   value={exportDate}
                   onChange={(e) => setExportDate(e.target.value)}
-                  className={inputCls}
+                  disabled={fileFormat === "png"}
+                  className={`${inputCls} ${fileFormat === "png"
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                    }`}
                 />
-                <p className="text-xs text-gray-600">
-                  Select the date whose D+1 forecast you want to export.
+                <p className="text-xs text-gray-400">
+                  {fileFormat === "png"
+                    ? "Date selection is unavailable for PNG chart exports."
+                    : "Select the date whose D+1 forecast you want to export."}
                 </p>
               </div>
             ) : (
@@ -376,11 +383,15 @@ export function ExportModal({
                       type="date"
                       value={startDate}
                       max={endDate}
+                      disabled={fileFormat === "png"}
                       onChange={(e) => {
                         setStartDate(e.target.value);
                         setError(null);
                       }}
-                      className={inputCls}
+                      className={`${inputCls} ${fileFormat === "png"
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                        }`}
                     />
                   </div>
                   <div className="text-gray-600 text-sm mt-4">→</div>
@@ -391,11 +402,15 @@ export function ExportModal({
                       value={endDate}
                       min={startDate}
                       max={today()}
+                      disabled={fileFormat === "png"}
                       onChange={(e) => {
                         setEndDate(e.target.value);
                         setError(null);
                       }}
-                      className={inputCls}
+                      className={`${inputCls} ${fileFormat === "png"
+                          ? "opacity-50 cursor-not-allowed"
+                          : ""
+                        }`}
                     />
                   </div>
                 </div>
@@ -453,9 +468,17 @@ export function ExportModal({
                 })}
               </div>
               {fileFormat === "png" && (
-                <p className="text-xs text-gray-500">
-                  Captures the chart currently rendered on screen at 2× resolution.
-                </p>
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                  <AlertCircle
+                    size={14}
+                    className="mt-0.5 shrink-0 text-amber-400"
+                  />
+
+                  <p className="text-xs leading-relaxed text-gray-400">
+                    PNG exports the chart currently displayed on the dashboard.
+                    The selected date above does not affect the exported image.
+                  </p>
+                </div>
               )}
               {fileFormat === "xlsx" && (
                 <p className="text-xs text-gray-500">

@@ -53,7 +53,14 @@
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
   }
-
+  .chart-grid-background {
+    background-color: #fafafa;
+    background-image:
+      linear-gradient(to right, #f1f1f3 1px, transparent 1px),
+      linear-gradient(to bottom, #f1f1f3 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  
   * {
     @apply border-border;
   }
