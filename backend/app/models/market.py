@@ -3,11 +3,13 @@ from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Float
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
-
+from sqlalchemy import UniqueConstraint
 
 class RawWeatherForecast(Base):
     __tablename__ = "raw_weather_forecasts"
-
+    __table_args__ = (
+        UniqueConstraint('region', 'datetime_hour', name='uq_raw_weather_region_datetime_hour'),
+    )
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     region = Column(String, nullable=False)
     datetime_hour = Column(DateTime, nullable=False)

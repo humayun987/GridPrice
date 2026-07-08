@@ -3,11 +3,13 @@ from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Float, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
-
+from sqlalchemy import Column, String, DateTime, Float, ForeignKey, Integer, UniqueConstraint
 
 class ForecastRun(Base):
     __tablename__ = "forecast_runs"
-
+    __table_args__ = (
+        UniqueConstraint('market', 'region', 'forecast_date', name='uq_forecast_runs_market_region_date'),
+    )
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     market = Column(String, nullable=False)
     region = Column(String, nullable=False)

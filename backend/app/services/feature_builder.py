@@ -225,6 +225,68 @@ async def _fetch_weather_data(
 
 # ─── Save predictions ─────────────────────────────────────────────────────────
 
+# async def _save_predictions(
+#     db: AsyncSession,
+#     predictions: list[dict],
+#     market: str,
+#     state: str,
+#     forecast_date: date,
+# ) -> str:
+#     """
+#     Inserts 1 forecast_run row + 96 forecast rows.
+#     Returns forecast_run_id.
+#     """
+#     forecast_run_id = str(uuid.uuid4())
+
+#     await db.execute(
+#         text("""
+#             INSERT INTO forecast_runs
+#                 (id, market, region, forecast_date,
+#                  model_run_timestamp, status, created_at)
+#             VALUES
+#                 (:id, :market, :region, :forecast_date,
+#                  :model_run_timestamp, :status, :created_at)
+#         """),
+#         {
+#             "id":                  forecast_run_id,
+#             "market":              market,
+#             "region":              state,
+#             "forecast_date":       forecast_date,
+#             "model_run_timestamp": datetime.utcnow(),
+#             "status":              "completed",
+#             "created_at":          datetime.utcnow(),
+#         }
+#     )
+
+#     for pred in predictions:
+#         await db.execute(
+#             text("""
+#                 INSERT INTO forecasts
+#                     (id, forecast_run_id, market, region,
+#                      datetime_block, predicted_price,
+#                      lower_ci, upper_ci, confidence_level, created_at)
+#                 VALUES
+#                     (:id, :forecast_run_id, :market, :region,
+#                      :datetime_block, :predicted_price,
+#                      :lower_ci, :upper_ci, :confidence_level, :created_at)
+#             """),
+#             {
+#                 "id":               str(uuid.uuid4()),
+#                 "forecast_run_id":  forecast_run_id,
+#                 "market":           market,
+#                 "region":           state,
+#                 "datetime_block":   pred["datetime_block"],
+#                 "predicted_price":  pred["predicted_price"],
+#                 "lower_ci":         pred["lower_ci"],
+#                 "upper_ci":         pred["upper_ci"],
+#                 "confidence_level": pred["confidence_level"],
+#                 "created_at":       datetime.utcnow(),
+#             }
+#         )
+
+#     await db.commit()
+#     return forecast_run_id
+
 async def _save_predictions(
     db: AsyncSession,
     predictions: list[dict],
@@ -233,12 +295,11 @@ async def _save_predictions(
     forecast_date: date,
 ) -> str:
     """
-    Inserts 1 forecast_run row + 96 forecast rows.
-    Returns forecast_run_id.
+    Upserts forecast_run (on market+region+forecast_date conflict, keeps same id).
+    Deletes and re-inserts the 96 forecast rows tied to that run.
     """
-    forecast_run_id = str(uuid.uuid4())
-
-    await db.execute(
+    # ── Step 1: Upsert forecast_run, get back its id (existing or new) ──
+    result = await db.execute(
         text("""
             INSERT INTO forecast_runs
                 (id, market, region, forecast_date,
@@ -246,9 +307,14 @@ async def _save_predictions(
             VALUES
                 (:id, :market, :region, :forecast_date,
                  :model_run_timestamp, :status, :created_at)
+            ON CONFLICT (market, region, forecast_date)
+            DO UPDATE SET
+                model_run_timestamp = EXCLUDED.model_run_timestamp,
+                status = EXCLUDED.status
+            RETURNING id
         """),
         {
-            "id":                  forecast_run_id,
+            "id":                  str(uuid.uuid4()),
             "market":              market,
             "region":              state,
             "forecast_date":       forecast_date,
@@ -257,7 +323,15 @@ async def _save_predictions(
             "created_at":          datetime.utcnow(),
         }
     )
+    forecast_run_id = str(result.scalar_one())
 
+    # ── Step 2: Clear old forecast rows for this run (safe re-run) ──
+    await db.execute(
+        text("DELETE FROM forecasts WHERE forecast_run_id = :run_id"),
+        {"run_id": forecast_run_id}
+    )
+
+    # ── Step 3: Insert fresh predictions ──
     for pred in predictions:
         await db.execute(
             text("""

@@ -46,7 +46,7 @@ async def fetch_tomorrow_weather(
 
         coords = STATE_COORDS[state]
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             params = {
                 "latitude":  coords["lat"],
                 "longitude": coords["lon"],
@@ -80,12 +80,21 @@ async def fetch_tomorrow_weather(
                 text("""
                     INSERT INTO raw_weather_forecasts
                     (id, region, datetime_hour, temperature,
-                     humidity, cloud_cover, wind_speed,
-                     solar_irradiance, rain, fetched_at)
+                    humidity, cloud_cover, wind_speed,
+                    solar_irradiance, rain, fetched_at)
                     VALUES
                     (:id, :region, :datetime_hour, :temperature,
-                     :humidity, :cloud_cover, :wind_speed,
-                     :solar_irradiance, :rain, :fetched_at)
+                    :humidity, :cloud_cover, :wind_speed,
+                    :solar_irradiance, :rain, :fetched_at)
+                    ON CONFLICT (region, datetime_hour)
+                    DO UPDATE SET
+                        temperature = EXCLUDED.temperature,
+                        humidity = EXCLUDED.humidity,
+                        cloud_cover = EXCLUDED.cloud_cover,
+                        wind_speed = EXCLUDED.wind_speed,
+                        solar_irradiance = EXCLUDED.solar_irradiance,
+                        rain = EXCLUDED.rain,
+                        fetched_at = EXCLUDED.fetched_at
                 """),
                 {
                     "id":             str(uuid.uuid4()),

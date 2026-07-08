@@ -35,7 +35,7 @@ def _scrape_sync(market: str, state: str, scrape_date: str, temp_file: str) -> d
 
         try:
             print(f"[Scraper] Opening {URL}...")
-            page.goto(URL, timeout=60000)
+            page.goto(URL, timeout=90000)
             page.wait_for_load_state("networkidle")
 
             print(f"[Scraper] Selecting market: {market}...")
@@ -56,7 +56,7 @@ def _scrape_sync(market: str, state: str, scrape_date: str, temp_file: str) -> d
 
             print("[Scraper] Waiting for CSV button...")
             csv_button = page.locator('.buttons-csv')
-            csv_button.wait_for(state="visible", timeout=30000)
+            csv_button.wait_for(state="visible", timeout=60000)
 
             print("[Scraper] Downloading CSV...")
             with page.expect_download() as download_info:
