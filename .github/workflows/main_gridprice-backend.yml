@@ -1,0 +1,53 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
+name: Build and deploy container app to Azure Web App - gridprice-backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read #This is required for actions/checkout
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to container registry
+        uses: docker/login-action@v2
+        with:
+          registry: gridpriceacr01.azurecr.io/
+          username: ${{ secrets.AZUREAPPSERVICE_CONTAINERUSERNAME_082345E7BEA546F5A37AC7501B774678 }}
+          password: ${{ secrets.AZUREAPPSERVICE_CONTAINERPASSWORD_13E5796E59134BB9ACF523454D200E0E }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v3
+        with:
+          context: ./backend
+          push: true
+          tags: gridpriceacr01.azurecr.io/${{ secrets.AZUREAPPSERVICE_CONTAINERUSERNAME_082345E7BEA546F5A37AC7501B774678 }}/gridprice-backend:${{ github.sha }}
+          file: ./backend/Dockerfile
+
+  deploy:
+    runs-on: ubuntu-latest
+    
+    needs: build
+    
+    steps:
+      
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'gridprice-backend'
+          slot-name: 'Production'
+          images: 'gridpriceacr01.azurecr.io/${{ secrets.AZUREAPPSERVICE_CONTAINERUSERNAME_082345E7BEA546F5A37AC7501B774678 }}/gridprice-backend:${{ github.sha }}'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FC40F8A5F0984B319A6D208825821D98 }}
