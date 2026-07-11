@@ -14,7 +14,7 @@ from app.core.database import get_db
 from app.routers import auth, admin
 from app.core.scheduler import create_scheduler
 from app.services.scraper import scrape_today_mcp
-from app.core.scheduler import run_mcp_scraper
+from app.core.scheduler import run_mcp_scraper, run_pipeline
 from app.services.weather import fetch_tomorrow_weather
 from app.routers import forecasts
 from app.routers.exports import router as exports_router
@@ -144,44 +144,18 @@ async def test_fetch_weather(
     result = await fetch_tomorrow_weather(db, state=state)
     return result
 
-
 @app.post("/test/run-pipeline")
 async def test_run_pipeline(
-    market: str = Query("GDAM"),
-    state: str = Query("Telangana"),
-    db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
     """
-    Manually trigger feature builder + ML pipeline for a single market.
-    For testing only — does NOT invalidate cache.
-    Use POST /api/refresh after this to clear stale cache.
+    Manually trigger the full scheduled pipeline job (run_pipeline from
+    scheduler.py) — all markets × all states, with the same retry +
+    per-attempt-timeout logic and cache invalidation as the 9:45 AM cron.
+ 
+    Calls the SAME function the scheduler runs, rather than a separately
+    maintained copy of the pipeline logic — so this endpoint can never
+    drift out of sync with what actually runs in production.
     """
-    from app.services.feature_builder import build_features_and_predict
-    result = await build_features_and_predict(db, state=state, target_market=market)
-    if result.get("status") == "success":
-        await cache_delete_pattern(f"forecast:{market}:{state}:*")
-        await cache_delete_pattern("availability")
-    return result
-
-
-@app.post("/test/run-pipeline-all")
-async def test_run_pipeline_all(
-    state: str = Query("Telangana"),
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    """
-    Manually trigger pipeline for all markets sequentially.
-    For testing only — does NOT invalidate cache.
-    """
-    from app.services.feature_builder import build_features_and_predict
-    results = []
-    for market in ["GDAM", "DAM", "RTM"]:
-        result = await build_features_and_predict(db, state=state, target_market=market)
-        results.append(result)
-
-    for m in ["GDAM", "DAM", "RTM"]:
-        await cache_delete_pattern(f"forecast:{m}:{state}:*")
-    await cache_delete_pattern("availability")
-    return results
+    await run_pipeline()
+    return {"status": "triggered — check logs for details"}

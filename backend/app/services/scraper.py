@@ -2,6 +2,7 @@ import asyncio
 import uuid
 import os
 import sys
+import logging
 import pandas as pd
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,12 +12,20 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 URL = "https://iexrtmprice.com/DSM_Data/"
 
 # Thread pool — only used on Windows
 _executor = ThreadPoolExecutor(max_workers=2)
+
+# Minimum acceptable rows for a scrape to be considered valid.
+# GDAM/DAM expect 96 (15-min blocks/day); RTM's normal same-day scrape
+# only has ~40 available at 9AM (rest backfilled later), so this floor
+# is set low enough to allow that but still catch a genuinely empty/
+# malformed CSV (0 rows) being logged as a false "success".
+MIN_EXPECTED_ROWS = 1
 
 
 # ─── Browser scraping logic (sync) ───────────────────────────────────────────
@@ -30,45 +39,68 @@ def _scrape_sync(market: str, state: str, scrape_date: str, temp_file: str) -> d
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
         page = browser.new_page()
 
         try:
-            print(f"[Scraper] Opening {URL}...")
-            page.goto(URL, timeout=90000)
-            page.wait_for_load_state("networkidle")
+            logger.info(f"[Scraper] Opening {URL}...")
+            response = page.goto(
+                URL,
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
 
-            print(f"[Scraper] Selecting market: {market}...")
+            if response is None:
+                raise RuntimeError("No response received from IEX")
+
+            if not response.ok:
+                raise RuntimeError(f"IEX returned HTTP {response.status}")
+
+            logger.info(f"[Scraper] Page loaded, HTTP {response.status}")
+
+            page.locator('select[name="segment"]').wait_for(
+                state="visible",
+                timeout=30000,
+            )
+
+            logger.info(f"[Scraper] Selecting market: {market}...")
             page.select_option('select[name="segment"]', label=market)
 
-            print(f"[Scraper] Selecting state: {state}...")
+            logger.info(f"[Scraper] Selecting state: {state}...")
             page.locator('button[data-id="mySelect"]').click()
             page.locator(
                 f'.dropdown-menu.show >> text="{state}"'
             ).first.click()
 
-            print(f"[Scraper] Setting date to: {scrape_date}...")
+            logger.info(f"[Scraper] Setting date to: {scrape_date}...")
             page.locator('#fromDate').fill(scrape_date)
             page.locator('#toDate').fill(scrape_date)
 
-            print("[Scraper] Submitting search...")
+            logger.info("[Scraper] Submitting search...")
             page.locator('#submit_btn').click()
 
-            print("[Scraper] Waiting for CSV button...")
+            logger.info("[Scraper] Waiting for CSV button...")
             csv_button = page.locator('.buttons-csv')
             csv_button.wait_for(state="visible", timeout=60000)
 
-            print("[Scraper] Downloading CSV...")
+            logger.info("[Scraper] Downloading CSV...")
             with page.expect_download() as download_info:
                 csv_button.click()
 
             download = download_info.value
             download.save_as(temp_file)
-            print(f"[Scraper] CSV saved as {temp_file}")
+            logger.info(f"[Scraper] CSV saved as {temp_file}")
             return {"success": True}
 
         except Exception as e:
-            print(f"[Scraper] Browser error: {e}")
+            logger.error(f"[Scraper] Browser error: {e}")
             return {"success": False, "error": str(e)}
 
         finally:
@@ -118,9 +150,21 @@ async def scrape_today_mcp(
 
         # ── Step 2: Parse CSV ─────────────────────────────────
         df = pd.read_csv(temp_file)
-        print(f"[Scraper] RAW columns: {list(df.columns)}")
-        print(f"[Scraper] First row: {df.iloc[0].to_dict() if len(df) > 0 else 'empty'}")
-        print(f"[Scraper] Total rows: {len(df)}")
+        logger.info(f"[Scraper] RAW columns: {list(df.columns)}")
+        logger.info(f"[Scraper] First row: {df.iloc[0].to_dict() if len(df) > 0 else 'empty'}")
+        logger.info(f"[Scraper] Total rows: {len(df)}")
+
+        # ── Guard: reject an empty/malformed CSV outright ─────
+        # A CSV that downloaded fine but parsed to 0 rows (e.g. IEX
+        # returned a "no data" page instead of real data, or the page
+        # layout changed silently) would otherwise fall through to
+        # "Successfully wrote 0 rows" and get logged as a false success —
+        # the exact same class of bug that hit the weather job.
+        if len(df) < MIN_EXPECTED_ROWS:
+            raise ValueError(
+                f"Scraped CSV for {market}/{state} on {scrape_date} has "
+                f"{len(df)} rows — treating as failed scrape."
+            )
 
         # Clean column names
         df.columns = [
@@ -188,22 +232,32 @@ async def scrape_today_mcp(
                 rows_written += 1
 
             except Exception as row_error:
-                print(f"[Scraper] Skipping row: {row_error}")
+                logger.warning(f"[Scraper] Skipping row: {row_error}")
                 continue
 
+        # ── Guard: every row failed to parse individually ─────
+        # The CSV had rows, but per-row parsing (time/date format,
+        # column names) rejected all of them — commit would succeed
+        # with 0 actual writes, another false-success path.
+        if rows_written == 0:
+            raise ValueError(
+                f"Scraped CSV for {market}/{state} on {scrape_date} had "
+                f"{len(df)} raw rows but 0 were successfully parsed/written."
+            )
+
         await db.commit()
-        print(f"[Scraper] Successfully wrote {rows_written} rows")
+        logger.info(f"[Scraper] Successfully wrote {rows_written} rows")
 
     except Exception as e:
-        error_message = str(e)
-        print(f"[Scraper] Failed: {error_message}")
+        error_message = str(e) if str(e) else type(e).__name__
+        logger.error(f"[Scraper] Failed: {error_message}")
         await db.rollback()
 
     finally:
         # Always clean up temp file
         if os.path.exists(temp_file):
             os.remove(temp_file)
-            print(f"[Scraper] Cleaned up {temp_file}")
+            logger.info(f"[Scraper] Cleaned up {temp_file}")
 
         # Always log the run
         await _log_scrape_run(
@@ -266,4 +320,13 @@ async def _log_scrape_run(
         )
         await db.commit()
     except Exception as e:
-        print(f"[Scraper] Failed to log run: {e}")
+        # This is the run-logging path itself failing (e.g. DB hiccup).
+        # Previously this used print(), which meant a failure here could
+        # go unnoticed and leave you with zero record of what happened.
+        # Also roll back so a failed log-insert can't leave the session
+        # in a broken state for any caller that reuses `db` afterward.
+        logger.error(f"[Scraper] Failed to log run to scrape_run_logs: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass

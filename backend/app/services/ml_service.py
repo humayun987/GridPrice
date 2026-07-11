@@ -28,18 +28,22 @@ async def call_ml_service(
 ) -> list[dict]:
     """
     Routes to correct ML service based on market.
-    payload  — the full JSON body (region, prediction_date, market_data, weather_data)
+    payload  — for GDAM/DAM: {region, prediction_date, market_data, weather_data}
+               for RTM:      {prediction_date, data: [...]}  (own shape)
     prediction_date — used to convert block numbers → datetime_block values
+                       (GDAM/DAM only; RTM response already includes datetime)
     """
     url = _get_ml_url(market)
 
     if _is_mock(url):
         return await _mock_predict(payload, market, prediction_date)
+    elif market == "RTM":
+        return await _real_predict_rtm(payload, url, prediction_date)
     else:
         return await _real_predict(payload, url, market, prediction_date)
 
 
-# ─── Real prediction ──────────────────────────────────────────────────────────
+# ─── Real prediction — GDAM / DAM ────────────────────────────────────────────
 
 async def _real_predict(
     payload: dict,
@@ -60,7 +64,33 @@ async def _real_predict(
     print(f"[ML] Response received, parsing ({market})...")
     return _parse_response(data, market, prediction_date)
 
-# ─── Response parser ──────────────────────────────────────────────────────────
+
+# ─── Real prediction — RTM ───────────────────────────────────────────────────
+
+async def _real_predict_rtm(
+    payload: dict,
+    base_url: str,
+    prediction_date: date,
+) -> list[dict]:
+    """
+    RTM has a single endpoint (no /predict/{market} suffix) and a different
+    payload + response shape from GDAM/DAM.
+    """
+    url = f"{base_url}/api/predict"
+    print(f"[ML] Calling: {url}")
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(url, json=payload)
+        if response.status_code != 200:
+            print(f"[ML][RTM] {response.status_code}: {response.text}")
+        response.raise_for_status()
+        data = response.json()
+
+    print(f"[ML] Response received, parsing (RTM)...")
+    return _parse_rtm_response(data)
+
+
+# ─── Response parser — GDAM / DAM ────────────────────────────────────────────
 
 def _parse_response(data: dict, market: str, prediction_date: date) -> list[dict]:
     """
@@ -115,6 +145,60 @@ def _parse_response(data: dict, market: str, prediction_date: date) -> list[dict
     return predictions
 
 
+# ─── Response parser — RTM ───────────────────────────────────────────────────
+
+def _parse_rtm_response(data: dict) -> list[dict]:
+    """
+    Parses the RTM ML service response format:
+
+    {
+        "prediction_date": "2026-06-08",
+        "imputed_history_blocks": 56,
+        "predictions": [
+            {"datetime": "2026-06-08 00:00:00", "block": 0,
+             "p10": 4627.22, "p50": 8886.68, "p90": 10000},
+            ...
+            {"datetime": "2026-06-08 23:45:00", "block": 95, ...}
+        ]
+    }
+
+    Note the differences from GDAM/DAM:
+      - key is "predictions", not "forecast"
+      - block is 0-indexed (0-95), not 1-indexed
+      - keys are already lowercase p10/p50/p90
+      - "datetime" is given directly, so we use it as-is instead of
+        recomputing from block offset (avoids any indexing mismatch)
+    """
+    forecast_list = data.get("predictions", [])
+
+    imputed = data.get("imputed_history_blocks")
+    if imputed:
+        print(f"[ML][RTM] imputed_history_blocks: {imputed}")
+
+    predictions = []
+    for item in forecast_list:
+        try:
+            dt_block = datetime.strptime(item["datetime"], "%Y-%m-%d %H:%M:%S")
+            p10 = float(item["p10"])
+            p50 = float(item["p50"])
+            p90 = float(item["p90"])
+
+            predictions.append({
+                "datetime_block":   dt_block,
+                "predicted_price":  round(p50, 2),
+                "lower_ci":         round(p10, 2),
+                "upper_ci":         round(p90, 2),
+                "confidence_level": 0.80,
+            })
+
+        except Exception as e:
+            print(f"[ML][RTM] Error parsing forecast block: {e}")
+            continue
+
+    print(f"[ML][RTM] Parsed {len(predictions)} predictions")
+    return predictions
+
+
 # ─── Mock prediction ──────────────────────────────────────────────────────────
 
 async def _mock_predict(
@@ -124,21 +208,27 @@ async def _mock_predict(
 ) -> list[dict]:
     """
     Active when ML service URL contains 'localhost' or 'mock'.
-    RTM always hits this path until a real service URL is configured.
-    Derives a base price from the last 96 market_data rows (≈ 1 day).
+    Derives a base price from recent data. Handles both payload shapes:
+    GDAM/DAM ("market_data" key) and RTM ("data" key).
     """
     print(f"[ML] Mock mode ({market}) — generating dummy predictions")
 
-    market_data = payload.get("market_data", [])
-    base = 4000.0
-    if market_data:
+    if market == "RTM":
+        rows = payload.get("data", [])
         recent_prices = [
-            row["mcp_rs_mwh"]
-            for row in market_data[-96:]
+            row["rtm_price"] for row in rows
+            if row.get("rtm_price") is not None
+        ][-96:]
+    else:
+        rows = payload.get("market_data", [])
+        recent_prices = [
+            row["mcp_rs_mwh"] for row in rows[-96:]
             if row.get("mcp_rs_mwh") is not None
         ]
-        if recent_prices:
-            base = round(sum(recent_prices) / len(recent_prices), 2)
+
+    base = 4000.0
+    if recent_prices:
+        base = round(sum(recent_prices) / len(recent_prices), 2)
 
     predictions = []
     for block in range(1, 97):

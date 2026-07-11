@@ -5,19 +5,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.services.scraper import _log_scrape_run
 from zoneinfo import ZoneInfo
+import logging
 
+logger = logging.getLogger(__name__)
 STATE_COORDS = {
     "Telangana":      {"lat": 17.3850, "lon": 78.4867},
-    "Delhi":          {"lat": 28.6139, "lon": 77.2090},
-    "Maharashtra":    {"lat": 19.0760, "lon": 72.8777},
-    "Karnataka":      {"lat": 12.9716, "lon": 77.5946},
-    "Tamil Nadu":     {"lat": 13.0827, "lon": 80.2707},
-    "Gujarat":        {"lat": 23.0225, "lon": 72.5714},
-    "West Bengal":    {"lat": 22.5726, "lon": 88.3639},
-    "Uttar Pradesh":  {"lat": 26.8467, "lon": 80.9462},
-    "Rajasthan":      {"lat": 26.9124, "lon": 75.7873},
-    "Madhya Pradesh": {"lat": 23.2599, "lon": 77.4126},
 }
+
+# Expect 24 hourly rows for a single day. Anything short of this means
+# Open-Meteo returned a degraded/empty payload (seen after their 503s) —
+# treat it as a failure so the scheduler retries instead of logging a
+# false "success" with 0 rows written.
+MIN_EXPECTED_HOURLY_ROWS = 20
 
 
 async def fetch_tomorrow_weather(
@@ -46,7 +45,7 @@ async def fetch_tomorrow_weather(
 
         coords = STATE_COORDS[state]
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             params = {
                 "latitude":  coords["lat"],
                 "longitude": coords["lon"],
@@ -63,7 +62,7 @@ async def fetch_tomorrow_weather(
                 "timezone":   "Asia/Kolkata",
             }
 
-            print(f"[Weather] Fetching for {state} on {date_str}...")
+            logger.info(f"[Weather] Fetching for {state} on {date_str}...")
             response = await client.get(
                 "https://api.open-meteo.com/v1/forecast",
                 params=params
@@ -73,7 +72,18 @@ async def fetch_tomorrow_weather(
 
         hourly = data.get("hourly", {})
         times  = hourly.get("time", [])
-        print(f"[Weather] {len(times)} hourly rows received")
+        logger.info(f"[Weather] {len(times)} hourly rows received for {state}")
+
+        # ── Guard: reject degraded/empty responses ──────────────────
+        # A 200 OK with raise_for_status() passing does NOT guarantee
+        # usable data. Open-Meteo has been seen to return a valid-looking
+        # response with an empty "time" array right after a 503, which
+        # previously slipped through as a false "success" with 0 rows.
+        if len(times) < MIN_EXPECTED_HOURLY_ROWS:
+            raise ValueError(
+                f"Open-Meteo returned {len(times)} hourly rows for {state} "
+                f"on {date_str}, expected ~24. Treating as failed response."
+            )
 
         for i, time_str in enumerate(times):
             await db.execute(
@@ -112,11 +122,11 @@ async def fetch_tomorrow_weather(
             rows_written += 1
 
         await db.commit()
-        print(f"[Weather] Wrote {rows_written} rows for {state}")
+        logger.info(f"[Weather] Wrote {rows_written} rows for {state}")
 
     except Exception as e:
-        error_message = str(e)
-        print(f"[Weather] Failed: {error_message}")
+        error_message = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        logger.exception(f"[Weather] Failed for {state}")
         await db.rollback()
 
     finally:
@@ -164,7 +174,7 @@ async def fetch_weather_range(
     else:
         base_url = "https://api.open-meteo.com/v1/forecast"
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         params = {
             "latitude":  coords["lat"],
             "longitude": coords["lon"],
