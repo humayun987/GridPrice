@@ -78,13 +78,13 @@ export default function DashboardPage() {
       Authorization: `Bearer ${accessToken}`,
     };
 
-    const tomorrow = getTomorrow();
+    const forecastDate = selectedMarket === "RTM" ? getToday() : getTomorrow();
     const today = getToday();
 
     try {
       // fetch forecast first
       const foreRes = await fetch(
-        `${BASE_URL}/api/forecasts?market=${selectedMarket}&region=${selectedRegion}&forecast_date=${tomorrow}`,
+        `${BASE_URL}/api/forecasts?market=${selectedMarket}&region=${selectedRegion}&forecast_date=${forecastDate}`,
         { headers }
       );
       const fore = await foreRes.json();
@@ -181,7 +181,7 @@ export default function DashboardPage() {
       Authorization: `Bearer ${accessToken}`,
     };
 
-    const selectedDate = days[auditDay].date;
+    const selectedDate = auditDays[auditDay].date;
 
     try {
       const [histRes, foreRes] = await Promise.all([
@@ -443,6 +443,23 @@ export default function DashboardPage() {
   }), [forecastData, demandRatios, showCI, blocks, predicted, lowerCI, ciDiff, availableCILevels, selectedCILevel]);
 
   // ── Audit Chart ────────────────────────────────────────
+  const auditDays = useMemo(() => {
+    const startOffset = selectedMarket === "RTM" ? 1 : 0;
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - startOffset - i);
+
+      return {
+        label: d.toLocaleDateString("en-IN", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }),
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      };
+    });
+  }, [selectedMarket]);
   const auditBlocks = auditData.filter((d) => d.actual_price != null);
   const mae = auditBlocks.length ? Math.round(auditBlocks.reduce((s, d) => s + Math.abs(d.predicted_price - (d.actual_price ?? 0)), 0) / auditBlocks.length) : 0;
   // const mape = auditBlocks.length ? (auditBlocks.reduce((s, d) => s + Math.abs((d.predicted_price - (d.actual_price ?? 0)) / (d.actual_price ?? 1)), 0) / auditBlocks.length * 100).toFixed(1) : "0";
@@ -689,9 +706,13 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900">Price Discovery Corridor (D+1)</h1>
+          <h1 className="text-xl font-bold text-zinc-900">
+            Price Discovery Corridor ({selectedMarket === "RTM" ? "D" : "D+1"})
+          </h1>
           {/* <p className="text-zinc-500 text-sm mt-0.5">{todayStr}</p> */}
-          <p className="text-zinc-500 text-sm mt-0.5">{tomorrowStr}</p>
+          <p className="text-zinc-500 text-sm mt-0.5">
+            {selectedMarket === "RTM" ? todayStr : tomorrowStr}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* <Button variant="outline" size="sm" onClick={loadForecast} className="text-zinc-600 border-zinc-200 gap-1.5 h-8 text-xs">
@@ -770,7 +791,10 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center gap-3 text-center">
               <WifiOff size={32} className="text-zinc-300" />
               <p className="text-zinc-500 font-medium">No forecast available</p>
-              <p className="text-zinc-400 text-sm">No data found for {selectedMarket} · {selectedRegion} · Tomorrow</p>
+              <p className="text-zinc-400 text-sm">
+                No data found for {selectedMarket} · {selectedRegion} ·{" "}
+                {selectedMarket === "RTM" ? "Today" : "Tomorrow"}
+              </p>
               {/* <p className="text-zinc-300 text-xs">Only GDAM · Telangana is currently supported</p> */}
             </div>
           </div>
@@ -868,7 +892,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-2 mb-5 flex-wrap">
-          {days.map((day, i) => (
+          {auditDays.map((day, i) => (
             <button
               key={day.date}
               onClick={() => setAuditDay(i)}
@@ -888,7 +912,7 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center gap-3 text-center">
               <WifiOff size={28} className="text-zinc-300" />
               <p className="text-zinc-500 font-medium">No audit data available</p>
-              <p className="text-zinc-400 text-sm">Both forecast and actual prices are required for {days[auditDay]?.label}</p>
+              <p className="text-zinc-400 text-sm">Both forecast and actual prices are required for {auditDays[auditDay]?.label}</p>
               <p className="text-zinc-300 text-xs">Data is available for dates where both scraping and pipeline have run</p>
             </div>
           </Card>
