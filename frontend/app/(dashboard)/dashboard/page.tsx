@@ -1037,7 +1037,7 @@ export default function DashboardPage() {
             </div>
             <Card className="p-6 border-zinc-100 shadow-none">
               <p className="text-sm font-semibold text-zinc-700 mb-4">
-                Actual vs Predicted · {days[auditDay]?.label} · {selectedMarket}
+                Actual vs Predicted · {auditDays[auditDay]?.label} · {selectedMarket}
               </p>
               {/* <ReactECharts option={auditOption} style={{ height: "320px", width: "100%" }} opts={{ renderer: "canvas" }} onChartReady={(chart) => setAuditChartInstance(chart)} /> */}
               <div className="chart-grid-background rounded-lg overflow-hidden">
